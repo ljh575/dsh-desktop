@@ -1,0 +1,20 @@
+# 换行与文本规范 / line endings and text rules
+* text=auto eol=lf
+
+# Windows 脚本与配置文件用 CRLF，避免在记事本里看到连成一行
+*.ps1   text eol=crlf
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+*.ini   text eol=crlf
+*.manifest text eol=crlf
+
+# 二进制文件不做任何转换
+*.ico   binary
+*.png   binary
+*.jpg   binary
+*.zip   binary
+*.exe   binary
+*.dll   binary
+
+# 发布包与截图不参与语言统计
+docs/*.png  linguist-documentation

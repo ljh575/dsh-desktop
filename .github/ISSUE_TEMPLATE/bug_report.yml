@@ -1,0 +1,47 @@
+name: Bug report
+description: Report something that does not work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请尽量附上 `dsh-desktop.log`（在程序目录下），它记录了启动、服务输出与更新过程。
+  - type: input
+    id: version
+    attributes:
+      label: DSH Desktop version
+      description: 关于窗口里显示的版本，或 dsh-desktop.exe 的文件版本
+      placeholder: '1.0.0'
+    validations:
+      required: true
+  - type: dropdown
+    id: package
+    attributes:
+      label: Which package
+      options:
+        - slim (首启下载 dsh)
+        - 内置 dsh 版
+        - full (含 WebView2)
+        - 自己构建的
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: 'Windows 11 24H2 / Windows 10 22H2'
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: 现象、期望、以及能复现的步骤
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: 相关日志片段（注意先去掉 token、路径中的用户名等隐私信息）
+      render: text

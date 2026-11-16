@@ -1,0 +1,26 @@
+# DSH Desktop 构建与运行产物
+build/
+*.zip
+
+# 运行期文件（含密钥与会话，绝不入库）
+data/
+profile/
+workspace/
+dsh-desktop.log
+dsh-desktop.state
+selftest-result.json
+THIRD_PARTY_NOTICES.md
+
+# 构建脚本的下载缓存
+.cache/
+
+# 系统与编辑器
+Thumbs.db
+desktop.ini
+.DS_Store
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.swp

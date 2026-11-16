@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: DeepSeek Harness
+    url: https://github.com/deepseek-ai
+    about: 上游项目，与本启动器无关的问题请到那边反馈
