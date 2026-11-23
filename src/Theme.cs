@@ -120,6 +120,34 @@ namespace DshDesktop
             return path;
         }
 
+        // A window Region has to cover the final pixel row and column. Rounded() keeps
+        // its geometry one pixel inside the bounds so a 1px stroke stays inside, which
+        // is right for a painted panel but leaves that last row and column of a Region
+        // unpainted - the desktop behind then shows through as a one-pixel line.
+        public static GraphicsPath RoundedExact(Rectangle bounds, int radius)
+        {
+            GraphicsPath path = new GraphicsPath();
+            if (radius <= 1)
+            {
+                path.AddRectangle(bounds);
+                return path;
+            }
+            int d = Math.Min(radius * 2, Math.Min(bounds.Width, bounds.Height));
+            Rectangle arc = new Rectangle(bounds.X, bounds.Y, d, d);
+            path.AddArc(arc, 180, 90);
+
+            arc.X = bounds.Right - d;
+            path.AddArc(arc, 270, 90);
+
+            arc.Y = bounds.Bottom - d;
+            path.AddArc(arc, 0, 90);
+
+            arc.X = bounds.X;
+            path.AddArc(arc, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
         public void FillRounded(Graphics g, Rectangle bounds, int radius, Color color)
         {
             using (GraphicsPath path = Rounded(bounds, radius))
@@ -800,7 +828,7 @@ namespace DshDesktop
             if (Width <= 0 || Height <= 0) return;
             try
             {
-                using (GraphicsPath path = Theme.Rounded(new Rectangle(0, 0, Width, Height), _radius))
+                using (GraphicsPath path = Theme.RoundedExact(new Rectangle(0, 0, Width, Height), _radius))
                     Region = new Region(path);
             }
             catch { }

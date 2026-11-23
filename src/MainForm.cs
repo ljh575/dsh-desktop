@@ -150,7 +150,7 @@ namespace DshDesktop
                 }
                 NativeMethods.SuppressBorder(Handle);
                 if (NativeMethods.RoundCorners(Handle)) { Region = null; return; }
-                using (GraphicsPath path = Theme.Rounded(new Rectangle(0, 0, Width, Height), S(12)))
+                using (GraphicsPath path = Theme.RoundedExact(new Rectangle(0, 0, Width, Height), S(12)))
                     Region = new Region(path);
             }
             catch { }
