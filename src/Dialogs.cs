@@ -145,6 +145,7 @@ namespace DshDesktop
         {
             try
             {
+                NativeMethods.SuppressBorder(Handle);
                 if (NativeMethods.RoundCorners(Handle)) { Region = null; return; }
                 using (GraphicsPath path = Theme.Rounded(new Rectangle(0, 0, Width, Height), S(_cornerRadius)))
                     Region = new Region(path);
@@ -202,7 +203,23 @@ namespace DshDesktop
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
         private const int DwmWindowCornerPreference = 33;
+        private const int DwmBorderColor = 34;
         private const int DwmRound = 2;
+        private const int DwmColorNone = unchecked((int)0xFFFFFFFE);
+
+        // Windows 11 paints a one-pixel frame around a window it rounds. These windows
+        // have no frame of their own, so that frame reads as a stray grey outline;
+        // asking for "no border" drops it and keeps the rounded silhouette.
+        public static void SuppressBorder(IntPtr handle)
+        {
+            if (!Windows11) return;
+            try
+            {
+                int none = DwmColorNone;
+                DwmSetWindowAttribute(handle, DwmBorderColor, ref none, sizeof(int));
+            }
+            catch { }
+        }
 
         public static bool Windows11
         {

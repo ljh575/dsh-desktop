@@ -72,7 +72,7 @@ namespace DshDesktop
             Size = new Size(1280, 820);
             MinimumSize = new Size(560, 420);
             BackColor = Color.FromArgb(224, 224, 224);
-            Padding = new Padding(1);
+            Padding = new Padding(0);
             try { Icon = App.PickThemeIcon(_s.Icon); }
             catch { }
             _savedLayout = LoadLayout();
@@ -148,6 +148,7 @@ namespace DshDesktop
                     NativeMethods.SquareCorners(Handle);
                     return;
                 }
+                NativeMethods.SuppressBorder(Handle);
                 if (NativeMethods.RoundCorners(Handle)) { Region = null; return; }
                 using (GraphicsPath path = Theme.Rounded(new Rectangle(0, 0, Width, Height), S(12)))
                     Region = new Region(path);
@@ -315,9 +316,11 @@ namespace DshDesktop
                 if (button != null) button.SetTheme(_dark, _chromeRight, symbolControls);
             }
 
-            Color border = _dark ? Color.FromArgb(48, 50, 54) : Color.FromArgb(214, 218, 224);
-            BackColor = WindowState == FormWindowState.Maximized ? _chromeRight : border;
-            Padding = WindowState == FormWindowState.Maximized ? new Padding(0) : new Padding(1);
+            // No painted rail. The form background used to be a border colour and the
+            // children were inset by one pixel, which put a grey hairline around the
+            // whole window in both themes. The bar and the page now reach the edge.
+            BackColor = _chromeRight;
+            Padding = new Padding(0);
 
             if (_splash != null)
             {
