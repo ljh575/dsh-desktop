@@ -61,6 +61,7 @@ namespace DshDesktop
         private int _chromeSplit;                   // pixel where the two meet
         private int _chromeHeight = 40;
         private Theme _theme;
+        private DropShadow _shadow;
 
         public MainForm(Settings settings)
         {
@@ -123,6 +124,7 @@ namespace DshDesktop
                 FitToDesktop();
                 if (_bar != null) LayoutBar(_bar);
                 Launch();
+                ShowShadow();
             };
 
             // Windows 11 rounds frameless windows only when asked; the official
@@ -146,14 +148,32 @@ namespace DshDesktop
                     // showing through as a ring around the window.
                     Region = null;
                     NativeMethods.SquareCorners(Handle);
+                    HideShadow();
                     return;
                 }
                 NativeMethods.SuppressBorder(Handle);
-                if (NativeMethods.RoundCorners(Handle)) { Region = null; return; }
-                using (GraphicsPath path = Theme.RoundedExact(new Rectangle(0, 0, Width, Height), S(12)))
-                    Region = new Region(path);
+                if (NativeMethods.RoundCorners(Handle)) { Region = null; }
+                else
+                {
+                    using (GraphicsPath path = Theme.RoundedExact(new Rectangle(0, 0, Width, Height), S(12)))
+                        Region = new Region(path);
+                }
+                ShowShadow();
             }
             catch { }
+        }
+
+        private void ShowShadow()
+        {
+            if (_shadow == null)
+                _shadow = new DropShadow(this, S(12), S(24), 120);
+            if (WindowState != FormWindowState.Maximized)
+                _shadow.ShowShadow();
+        }
+
+        private void HideShadow()
+        {
+            try { if (_shadow != null) _shadow.Hide(); } catch { }
         }
 
         private int S(int value) { return (int)Math.Round(value * _scale); }
@@ -1903,6 +1923,11 @@ namespace DshDesktop
                 if (_view != null)
                 {
                     try { _view.Dispose(); } catch { }
+                }
+                if (_shadow != null)
+                {
+                    try { _shadow.Dispose(); } catch { }
+                    _shadow = null;
                 }
                 if (_server != null)
                 {
