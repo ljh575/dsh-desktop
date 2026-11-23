@@ -176,26 +176,75 @@ namespace DshDesktop
 
         private void ApplyAlpha(Bitmap bmp)
         {
+            int w = bmp.Width, h = bmp.Height;
             IntPtr screenDc = GetDC(IntPtr.Zero);
             IntPtr memDc = CreateCompatibleDC(screenDc);
-            IntPtr hBitmap = bmp.GetHbitmap(Color.FromArgb(0));
-            IntPtr old = SelectObject(memDc, hBitmap);
             try
             {
-                SIZE size = new SIZE(bmp.Width, bmp.Height);
-                POINT src = new POINT();
-                POINT dst = new POINT { X = _owner.Left - _margin, Y = _owner.Top - _margin };
-                BLENDFUNCTION blend = new BLENDFUNCTION();
-                blend.BlendOp = 0;                       // AC_SRC_OVER
-                blend.SourceConstantAlpha = _strength;
-                blend.AlphaFormat = 1;                   // AC_SRC_ALPHA
-                UpdateLayeredWindow(Handle, screenDc, ref dst, ref size, memDc, ref src,
-                    0, ref blend, 2 /* ULW_ALPHA */);
+                // GetHbitmap() flattens the alpha of a 32bppArgb bitmap, which leaves a
+                // one-pixel dark seam at the layered window's bottom and right edges on
+                // some compositors. A 32bpp top-down DIB section with explicit
+                // premultiplied alpha is the reliable way into UpdateLayeredWindow.
+                BITMAPINFO info = new BITMAPINFO();
+                info.biSize = 40;
+                info.biWidth = w;
+                info.biHeight = -h;       // negative height => top-down
+                info.biPlanes = 1;
+                info.biBitCount = 32;
+                info.biCompression = 0;   // BI_RGB
+
+                IntPtr bits;
+                IntPtr dib = CreateDIBSection(screenDc, ref info, 0, out bits, IntPtr.Zero, 0);
+                if (dib == IntPtr.Zero) return;
+
+                IntPtr old = SelectObject(memDc, dib);
+                try
+                {
+                    BitmapData data = bmp.LockBits(new Rectangle(0, 0, w, h),
+                        ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+                    try
+                    {
+                        byte[] src = new byte[data.Stride * h];
+                        Marshal.Copy(data.Scan0, src, 0, src.Length);
+                        byte[] dst = new byte[w * h * 4];   // packed BGRA, premultiplied
+                        for (int y = 0; y < h; y++)
+                        {
+                            int sRow = y * data.Stride;
+                            int dRow = y * w * 4;
+                            for (int x = 0; x < w; x++)
+                            {
+                                int s = sRow + x * 4;
+                                int d = dRow + x * 4;
+                                int a = src[s + 3];
+                                // GDI+ 32bppArgb is BGRA in memory; premultiply against alpha.
+                                dst[d + 0] = (byte)(src[s + 0] * a / 255); // B
+                                dst[d + 1] = (byte)(src[s + 1] * a / 255); // G
+                                dst[d + 2] = (byte)(src[s + 2] * a / 255); // R
+                                dst[d + 3] = (byte)a;                        // A
+                            }
+                        }
+                        Marshal.Copy(dst, 0, bits, dst.Length);
+                    }
+                    finally { bmp.UnlockBits(data); }
+
+                    SIZE size = new SIZE(w, h);
+                    POINT srcPt = new POINT();
+                    POINT dstPt = new POINT { X = _owner.Left - _margin, Y = _owner.Top - _margin };
+                    BLENDFUNCTION blend = new BLENDFUNCTION();
+                    blend.BlendOp = 0;                       // AC_SRC_OVER
+                    blend.SourceConstantAlpha = _strength;
+                    blend.AlphaFormat = 1;                   // AC_SRC_ALPHA
+                    UpdateLayeredWindow(Handle, screenDc, ref dstPt, ref size, memDc, ref srcPt,
+                        0, ref blend, 2 /* ULW_ALPHA */);
+                }
+                finally
+                {
+                    SelectObject(memDc, old);
+                    DeleteObject(dib);
+                }
             }
             finally
             {
-                SelectObject(memDc, old);
-                DeleteObject(hBitmap);
                 DeleteDC(memDc);
                 ReleaseDC(IntPtr.Zero, screenDc);
             }
@@ -219,6 +268,26 @@ namespace DshDesktop
 
         [StructLayout(LayoutKind.Sequential)]
         private struct BLENDFUNCTION { public byte BlendOp, BlendFlags, SourceConstantAlpha, AlphaFormat; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct BITMAPINFO
+        {
+            public int biSize;
+            public int biWidth;
+            public int biHeight;
+            public short biPlanes;
+            public short biBitCount;
+            public int biCompression;
+            public int biSizeImage;
+            public int biXPelsPerMeter;
+            public int biYPelsPerMeter;
+            public int biClrUsed;
+            public int biClrImportant;
+        }
+
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr CreateDIBSection(IntPtr hdc, ref BITMAPINFO pbmi, uint usage,
+            out IntPtr ppvBits, IntPtr hSection, uint offset);
 
         [DllImport("user32.dll")]
         private static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr hdcDst, ref POINT pptDst,
