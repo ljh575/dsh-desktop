@@ -250,32 +250,23 @@ namespace DshDesktop
         {
             if (_items.Length == 0) return;
             RoundedMenu menu = new RoundedMenu(Math.Max(4, (int)Math.Round(6 * _scale)));
-            bool styled = NativeMethods.Windows11;
             menu.Renderer = new MenuRenderer(_theme, _scale);
             menu.BackColor = _theme.MenuSurface;
-            // No native check box on either OS: the renderer draws a bare tick at the
-            // right edge of the selected row.
             menu.ShowCheckMargin = false;
             menu.ShowImageMargin = false;
-            if (styled)
-            {
-                menu.Font = new Font("Microsoft YaHei UI", 9f);
-                menu.Padding = new Padding((int)Math.Round(6 * _scale));
-            }
+            // Same look on both OSes: the UI font and the 34px row height.
+            menu.Font = new Font("Microsoft YaHei UI", 9f);
+            menu.Padding = new Padding((int)Math.Round(6 * _scale));
 
             for (int i = 0; i < _items.Length; i++)
             {
                 int index = i;
                 ToolStripMenuItem item = new ToolStripMenuItem(_items[i]);
-                if (styled)
-                {
-                    int rowH = (int)Math.Round(34 * _scale);
-                    int textH = TextRenderer.MeasureText("Ag", menu.Font).Height;
-                    int padY = Math.Max(4, (rowH - textH) / 2);
-                    item.Padding = new Padding(8, padY, (int)Math.Round(34 * _scale), padY);
-                    item.Font = menu.Font;
-                }
-                item.Tag = i == SelectedIndex ? (object)true : null;
+                int rowH = (int)Math.Round(34 * _scale);
+                int textH = TextRenderer.MeasureText("Ag", menu.Font).Height;
+                int padY = Math.Max(4, (rowH - textH) / 2);
+                item.Padding = new Padding(8, padY, (int)Math.Round(34 * _scale), padY);
+                item.Font = menu.Font;
                 item.Click += delegate { SelectedIndex = index; };
                 menu.Items.Add(item);
             }
@@ -283,21 +274,17 @@ namespace DshDesktop
             _active = menu;
             menu.Closed += delegate { _open = false; if (ReferenceEquals(_active, menu)) _active = null; Invalidate(); };
 
-            if (styled)
+            // The strip sizes itself narrower than its padded rows; size it to the rows.
+            int widestItem = 0;
+            int totalHeight = menu.Padding.Vertical;
+            foreach (ToolStripItem entry in menu.Items)
             {
-                // The strip sizes itself narrower than its padded rows, which clipped the
-                // tick; size it to the rows instead.
-                int widestItem = 0;
-                int totalHeight = menu.Padding.Vertical;
-                foreach (ToolStripItem entry in menu.Items)
-                {
-                    Size wanted = entry.GetPreferredSize(Size.Empty);
-                    widestItem = Math.Max(widestItem, wanted.Width);
-                    totalHeight += wanted.Height;
-                }
-                menu.AutoSize = false;
-                menu.Size = new Size(widestItem + menu.Padding.Horizontal, totalHeight);
+                Size wanted = entry.GetPreferredSize(Size.Empty);
+                widestItem = Math.Max(widestItem, wanted.Width);
+                totalHeight += wanted.Height;
             }
+            menu.AutoSize = false;
+            menu.Size = new Size(widestItem + menu.Padding.Horizontal, totalHeight);
             menu.Show(this, new Point(0, Height + 2));
         }
 
@@ -735,6 +722,10 @@ namespace DshDesktop
         private readonly int _radius;
         private readonly Timer _closeTimer;
 
+        // The tray menu is shown by the notification icon, which chokes on the rounded
+        // region on Windows 11 and stops re-showing after the first open; it stays square.
+        public bool Square;
+
         public RoundedMenu(int radius)
         {
             _radius = Math.Max(4, radius);
@@ -804,7 +795,7 @@ namespace DshDesktop
                 // DWMWA_WINDOW_CORNER_PREFERENCE / DWMWA_BORDER_COLOR on a ToolStripDropDown
                 // interfere with its own rendering and stop the items from receiving clicks.
                 Region = null;
-                if (NativeMethods.Windows11)
+                if (NativeMethods.Windows11 && !Square)
                 {
                     using (GraphicsPath path = Theme.RoundedExact(new Rectangle(0, 0, Width, Height), _radius))
                         Region = new Region(path);
@@ -873,19 +864,6 @@ namespace DshDesktop
                 using (SolidBrush brush = new SolidBrush(tint))
                     e.Graphics.FillPath(brush, path);
             }
-
-            // A select row carries its tick as an image used only as a marker; it is
-            // drawn here, at the right end of the row, because a menu item cannot
-            // right-align its own image.
-            if (e.Item.Tag is bool && (bool)e.Item.Tag)
-            {
-                Rectangle bounds = e.Item.Bounds;
-                Rectangle box = new Rectangle(
-                    bounds.Right - (int)Math.Round(_scale * 22), bounds.Top,
-                    (int)Math.Round(_scale * 18), bounds.Height);
-                TextRenderer.DrawText(e.Graphics, "\u2713", e.Item.Font, box, _theme.Text,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
-            }
         }
 
         private void PaintRow(ToolStripItemRenderEventArgs e)
@@ -920,13 +898,10 @@ namespace DshDesktop
             if (entry == null) return;
             // The graphics for an item is already translated to that item, so the
             // box has to be item-relative; using Bounds drew every row but the first
-            // outside its own clip. The selected row reserves room on the right for the
-            // tick so the label does not run into it.
+            // outside its own clip.
             int pad = (int)Math.Round(12 * _scale);
-            int rightPad = (entry.Tag is bool && (bool)entry.Tag)
-                ? (int)Math.Round(28 * _scale) : pad;
             RectangleF area = new RectangleF(pad, 0,
-                Math.Max(8, entry.Width - pad - rightPad), entry.Height);
+                Math.Max(8, entry.Width - pad * 2), entry.Height);
             Color color = entry.Enabled ? _theme.Text : _theme.TextMuted;
             Font font = entry.Font;
             if (font == null) font = SystemFonts.MenuFont;
