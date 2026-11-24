@@ -940,8 +940,8 @@ namespace DshDesktop
             foreach (ToolStripItem entry in menu.Items)
             {
                 entry.ForeColor = theme.Text;
-                Size want = entry.GetPreferredSize(Size.Empty);
-                int padY = Math.Max(S(4), (Theme.MenuRowHeight(_scale) - want.Height) / 2);
+                int textH = TextRenderer.MeasureText("Ag", entry.Font ?? SystemFonts.MenuFont).Height;
+                int padY = Math.Max(S(4), (Theme.MenuRowHeight(_scale) - textH) / 2);
                 entry.Padding = new Padding(0, padY, 0, padY);
             }
             // Let the strip hug its own content: a forced width is what made the tray
@@ -972,8 +972,8 @@ namespace DshDesktop
             foreach (ToolStripItem entry in menu.Items)
             {
                 entry.ForeColor = theme.Text;
-                Size want = entry.GetPreferredSize(Size.Empty);
-                int padY = Math.Max(S(4), (Theme.MenuRowHeight(_scale) - want.Height) / 2);
+                int textH = TextRenderer.MeasureText("Ag", entry.Font ?? SystemFonts.MenuFont).Height;
+                int padY = Math.Max(S(4), (Theme.MenuRowHeight(_scale) - textH) / 2);
                 entry.Padding = new Padding(0, padY, 0, padY);
             }
             // Let the strip hug its own content: a forced width is what made the tray

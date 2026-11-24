@@ -253,14 +253,14 @@ namespace DshDesktop
             bool styled = NativeMethods.Windows11;
             menu.Renderer = new MenuRenderer(_theme, _scale);
             menu.BackColor = _theme.MenuSurface;
+            // No native check box on either OS: the renderer draws a bare tick at the
+            // right edge of the selected row.
+            menu.ShowCheckMargin = false;
+            menu.ShowImageMargin = false;
             if (styled)
             {
                 menu.Font = new Font("Microsoft YaHei UI", 9f);
                 menu.Padding = new Padding((int)Math.Round(6 * _scale));
-                // The native check margin paints a small square, so the tick is drawn
-                // by the renderer at the right edge of the row instead.
-                menu.ShowCheckMargin = false;
-                menu.ShowImageMargin = false;
             }
 
             for (int i = 0; i < _items.Length; i++)
@@ -274,13 +274,8 @@ namespace DshDesktop
                     int padY = Math.Max(4, (rowH - textH) / 2);
                     item.Padding = new Padding(8, padY, (int)Math.Round(34 * _scale), padY);
                     item.Font = menu.Font;
-                    item.Tag = i == SelectedIndex ? (object)true : null;
                 }
-                else
-                {
-                    // System default: the native check mark shows the selection.
-                    item.Checked = i == SelectedIndex;
-                }
+                item.Tag = i == SelectedIndex ? (object)true : null;
                 item.Click += delegate { SelectedIndex = index; };
                 menu.Items.Add(item);
             }
@@ -738,6 +733,8 @@ namespace DshDesktop
     internal sealed class RoundedMenu : ContextMenuStrip
     {
         private readonly int _radius;
+        private NativeMethods.MouseHookProc _hook;
+        private IntPtr _hookHandle = IntPtr.Zero;
 
         public RoundedMenu(int radius)
         {
@@ -749,6 +746,44 @@ namespace DshDesktop
         {
             base.OnOpened(e);
             ApplyShape();
+
+            // A menu is its own window, so a click on the page behind it never reaches
+            // the strip and it stayed open. The hook closes it when the press lands on
+            // anything other than the menu itself. WindowFromPoint (not a bounds check)
+            // keeps it from dismissing the menu on its own items at scaled DPI.
+            _hook = delegate(int code, IntPtr wParam, IntPtr lParam)
+            {
+                if (code >= 0)
+                {
+                    int message = wParam.ToInt32();
+                    if (message == 0x0201 || message == 0x0204)
+                    {
+                        NativeMethods.MOUSEHOOKSTRUCT point = (NativeMethods.MOUSEHOOKSTRUCT)
+                            System.Runtime.InteropServices.Marshal.PtrToStructure(
+                                lParam, typeof(NativeMethods.MOUSEHOOKSTRUCT));
+                        IntPtr under = NativeMethods.WindowFromPoint(point.pt);
+                        if (under != Handle && under != IntPtr.Zero && Visible)
+                        {
+                            try { BeginInvoke((MethodInvoker)delegate { Close(); }); }
+                            catch { }
+                        }
+                    }
+                }
+                return NativeMethods.CallNextHookEx(_hookHandle, code, wParam, lParam);
+            };
+            _hookHandle = NativeMethods.SetWindowsHookEx(
+                NativeMethods.WH_MOUSE_LL, _hook, NativeMethods.GetModuleHandle(null), 0);
+        }
+
+        protected override void OnClosed(ToolStripDropDownClosedEventArgs e)
+        {
+            if (_hookHandle != IntPtr.Zero)
+            {
+                NativeMethods.UnhookWindowsHookEx(_hookHandle);
+                _hookHandle = IntPtr.Zero;
+                _hook = null;
+            }
+            base.OnClosed(e);
         }
 
         protected override void OnResize(EventArgs e)
@@ -845,7 +880,7 @@ namespace DshDesktop
             {
                 Rectangle bounds = e.Item.Bounds;
                 Rectangle box = new Rectangle(
-                    bounds.Right - (int)Math.Round(_scale * 26), bounds.Top,
+                    bounds.Right - (int)Math.Round(_scale * 22), bounds.Top,
                     (int)Math.Round(_scale * 18), bounds.Height);
                 TextRenderer.DrawText(e.Graphics, "\u2713", e.Item.Font, box, _theme.Text,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
@@ -884,10 +919,13 @@ namespace DshDesktop
             if (entry == null) return;
             // The graphics for an item is already translated to that item, so the
             // box has to be item-relative; using Bounds drew every row but the first
-            // outside its own clip.
+            // outside its own clip. The selected row reserves room on the right for the
+            // tick so the label does not run into it.
             int pad = (int)Math.Round(12 * _scale);
+            int rightPad = (entry.Tag is bool && (bool)entry.Tag)
+                ? (int)Math.Round(28 * _scale) : pad;
             RectangleF area = new RectangleF(pad, 0,
-                Math.Max(8, entry.Width - pad * 2), entry.Height);
+                Math.Max(8, entry.Width - pad - rightPad), entry.Height);
             Color color = entry.Enabled ? _theme.Text : _theme.TextMuted;
             Font font = entry.Font;
             if (font == null) font = SystemFonts.MenuFont;
