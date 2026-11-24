@@ -908,10 +908,6 @@ namespace DshDesktop
             _tray.Visible = true;
 
             ContextMenuStrip menu = new ContextMenuStrip();
-            // With the window visible, the WebView2 steals focus back the moment the
-            // popup appears, so the default AutoClose (close on deactivate) dismissed it
-            // instantly. Keeping it open on deactivate lets the right-click menu stay.
-            menu.AutoClose = false;
             Theme theme = _theme ?? Theme.FromPage(_dark, _chromeRight);
             // The renderer is OS-aware: rounded + system shadow on Windows 11, square
             // with a 1px gray frame on Windows 10. The background follows the theme.
@@ -939,6 +935,14 @@ namespace DshDesktop
             // The menu outlives language and theme changes, so its labels and colours
             // are refreshed right before it opens.
             menu.Opening += delegate { SyncTrayMenu(menu); };
+            // With the window visible, the WebView2 re-takes focus the instant the popup
+            // appears, which would dismiss it via AppFocusChange. Cancel only that reason,
+            // so item clicks, outside clicks and Esc still close the menu normally.
+            menu.Closing += delegate(object s, ToolStripDropDownClosingEventArgs e)
+            {
+                if (e.CloseReason == ToolStripDropDownCloseReason.AppFocusChange)
+                    e.Cancel = true;
+            };
             _trayMenu = menu;
             if (_tray != null) _tray.ContextMenuStrip = menu;
             foreach (ToolStripItem entry in menu.Items)
