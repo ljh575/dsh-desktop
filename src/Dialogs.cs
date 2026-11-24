@@ -27,13 +27,10 @@ namespace DshDesktop
         private readonly Label _titleLabel;
         private readonly ChromeButton _close;
 
-        private readonly int _cornerRadius;
-
         protected DsDialog(Theme palette, string title, int width, int height) : this(palette, title, width, height, 28) { }
 
         protected DsDialog(Theme palette, string title, int width, int height, int cornerRadius)
         {
-            _cornerRadius = cornerRadius;
             Palette = palette;
             Scale = App.Scale();
             FormBorderStyle = FormBorderStyle.None;
@@ -104,6 +101,7 @@ namespace DshDesktop
 
         private void EnableDropShadow()
         {
+            if (!NativeMethods.Windows11) return;   // Windows 10 keeps no shadow
             try
             {
                 // Only takes effect while the window has no native frame; called
@@ -145,10 +143,12 @@ namespace DshDesktop
         {
             try
             {
+                // Windows 10 dialogs stay square with the default style; Windows 11
+                // gets its rounded corners from DWM, not a region clip.
+                Region = null;
+                if (!NativeMethods.Windows11) return;
                 NativeMethods.SuppressBorder(Handle);
-                if (NativeMethods.RoundCorners(Handle)) { Region = null; return; }
-                using (GraphicsPath path = Theme.RoundedExact(new Rectangle(0, 0, Width, Height), S(_cornerRadius)))
-                    Region = new Region(path);
+                NativeMethods.RoundCorners(Handle);
             }
             catch { }
         }

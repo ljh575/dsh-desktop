@@ -185,7 +185,7 @@ namespace DshDesktop
         {
             _theme = theme;
             _scale = scale <= 0 ? 1f : scale;
-            _radius = (int)Math.Round(8 * _scale);
+            _radius = NativeMethods.Windows11 ? (int)Math.Round(8 * _scale) : 0;
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint
                 | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
             Font = new Font("Microsoft YaHei UI", 9f);
@@ -242,50 +242,59 @@ namespace DshDesktop
         {
             if (_items.Length == 0) return;
             RoundedMenu menu = new RoundedMenu(Math.Max(4, (int)Math.Round(6 * _scale)));
-            menu.Renderer = new MenuRenderer(_theme, _scale);
-            menu.Font = new Font("Microsoft YaHei UI", 9f);
-            menu.Padding = new Padding((int)Math.Round(6 * _scale));
-            menu.BackColor = _theme.MenuSurface;
-            // The native check margin paints a small square, so the tick is drawn
-            // by the renderer at the right edge of the row instead.
-            menu.ShowCheckMargin = false;
-            menu.ShowImageMargin = false;
-            int widest = 0;
-            foreach (string label in _items)
-                widest = Math.Max(widest, TextRenderer.MeasureText(label, menu.Font).Width);
-            int rowHeight = (int)Math.Round(34 * _scale);
-            int rowWidth = widest + (int)Math.Round(58 * _scale);
-
+            bool styled = NativeMethods.Windows11;
+            if (styled)
             {
-                for (int i = 0; i < _items.Length; i++)
+                menu.Renderer = new MenuRenderer(_theme, _scale);
+                menu.Font = new Font("Microsoft YaHei UI", 9f);
+                menu.Padding = new Padding((int)Math.Round(6 * _scale));
+                menu.BackColor = _theme.MenuSurface;
+                // The native check margin paints a small square, so the tick is drawn
+                // by the renderer at the right edge of the row instead.
+                menu.ShowCheckMargin = false;
+                menu.ShowImageMargin = false;
+            }
+
+            for (int i = 0; i < _items.Length; i++)
+            {
+                int index = i;
+                ToolStripMenuItem item = new ToolStripMenuItem(_items[i]);
+                if (styled)
                 {
-                    int index = i;
-                    ToolStripMenuItem item = new ToolStripMenuItem(_items[i]);
                     int rowH = (int)Math.Round(34 * _scale);
-                int textH = TextRenderer.MeasureText("Ag", menu.Font).Height;
-                int padY = Math.Max(4, (rowH - textH) / 2);
-                item.Padding = new Padding(8, padY, (int)Math.Round(34 * _scale), padY);
+                    int textH = TextRenderer.MeasureText("Ag", menu.Font).Height;
+                    int padY = Math.Max(4, (rowH - textH) / 2);
+                    item.Padding = new Padding(8, padY, (int)Math.Round(34 * _scale), padY);
                     item.Font = menu.Font;
                     item.Tag = i == SelectedIndex ? (object)true : null;
-                    item.Click += delegate { SelectedIndex = index; };
-                    menu.Items.Add(item);
                 }
+                else
+                {
+                    // System default: the native check mark shows the selection.
+                    item.Checked = i == SelectedIndex;
+                }
+                item.Click += delegate { SelectedIndex = index; };
+                menu.Items.Add(item);
             }
             _open = true;
             _active = menu;
             menu.Closed += delegate { _open = false; if (ReferenceEquals(_active, menu)) _active = null; Invalidate(); };
-            // The strip sizes itself narrower than its padded rows, which clipped the
-            // tick; size it to the rows instead.
-            int widestItem = 0;
-            int totalHeight = menu.Padding.Vertical;
-            foreach (ToolStripItem entry in menu.Items)
+
+            if (styled)
             {
-                Size wanted = entry.GetPreferredSize(Size.Empty);
-                widestItem = Math.Max(widestItem, wanted.Width);
-                totalHeight += wanted.Height;
+                // The strip sizes itself narrower than its padded rows, which clipped the
+                // tick; size it to the rows instead.
+                int widestItem = 0;
+                int totalHeight = menu.Padding.Vertical;
+                foreach (ToolStripItem entry in menu.Items)
+                {
+                    Size wanted = entry.GetPreferredSize(Size.Empty);
+                    widestItem = Math.Max(widestItem, wanted.Width);
+                    totalHeight += wanted.Height;
+                }
+                menu.AutoSize = false;
+                menu.Size = new Size(widestItem + menu.Padding.Horizontal, totalHeight);
             }
-            menu.AutoSize = false;
-            menu.Size = new Size(widestItem + menu.Padding.Horizontal, totalHeight);
             menu.Show(this, new Point(0, Height + 2));
         }
 
@@ -354,7 +363,7 @@ namespace DshDesktop
             Font = new Font("Microsoft YaHei UI", 9f);
             Cursor = Cursors.Hand;
             TabStop = true;
-            _radius = (int)Math.Round(12 * (scale <= 0 ? 1f : scale));
+            _radius = NativeMethods.Windows11 ? (int)Math.Round(12 * (scale <= 0 ? 1f : scale)) : 0;
         }
 
         public DialogResult DialogResult { get; set; }
@@ -432,7 +441,8 @@ namespace DshDesktop
                     using (Pen pen = new Pen(Color.FromArgb(90, ForeColor)))
                     {
                         Rectangle inner = new Rectangle(2, 2, Width - 5, Height - 5);
-                        using (GraphicsPath innerPath = Theme.Rounded(inner, Math.Max(2, _radius - 2)))
+                        int innerRadius = _radius > 2 ? _radius - 2 : _radius;
+                        using (GraphicsPath innerPath = Theme.Rounded(inner, innerRadius))
                             g.DrawPath(pen, innerPath);
                     }
                 }
@@ -734,7 +744,7 @@ namespace DshDesktop
 
         private void ApplyAllRoundShadow()
         {
-            if (!AllRoundShadow) return;
+            if (!AllRoundShadow || !NativeMethods.Windows11) return;
             try
             {
                 MARGINS margins = new MARGINS();
@@ -782,7 +792,10 @@ namespace DshDesktop
             ApplyAllRoundShadow();
 
             // A menu is its own window, so a click on the page behind it never reaches
-            // the strip and it stayed open. The hook sees every button press.
+            // the strip and it stayed open. The hook sees every button press and closes
+            // when the press lands on anything other than the menu itself. Comparing the
+            // window under the cursor is more reliable than a screen-bounds check, which
+            // could be off by the DPI scaling and dismiss the menu on its own items.
             _hook = delegate(int code, IntPtr wParam, IntPtr lParam)
             {
                 if (code >= 0)
@@ -793,7 +806,8 @@ namespace DshDesktop
                         NativeMethods.MOUSEHOOKSTRUCT point = (NativeMethods.MOUSEHOOKSTRUCT)
                             System.Runtime.InteropServices.Marshal.PtrToStructure(
                                 lParam, typeof(NativeMethods.MOUSEHOOKSTRUCT));
-                        if (!Bounds.Contains(point.pt.X, point.pt.Y) && Visible)
+                        IntPtr under = NativeMethods.WindowFromPoint(point.pt);
+                        if (under != Handle && under != IntPtr.Zero && Visible)
                         {
                             try { BeginInvoke((MethodInvoker)delegate { Close(); }); }
                             catch { }
@@ -825,6 +839,8 @@ namespace DshDesktop
 
         private void ApplyShape()
         {
+            // Windows 10 keeps the default square menu, matching dshview-client.
+            if (!NativeMethods.Windows11) return;
             if (Width <= 0 || Height <= 0) return;
             try
             {

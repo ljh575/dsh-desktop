@@ -341,7 +341,8 @@ namespace DshDesktop
                 using (SolidBrush back = new SolidBrush(Palette.Surface))
                     g.FillRectangle(back, cell.ClientRectangle);
                 Rectangle r = new Rectangle(0, 0, cell.ClientSize.Width - 1, cell.ClientSize.Height - 1);
-                using (GraphicsPath path = Theme.Rounded(r, S(8)))
+                int radius = NativeMethods.Windows11 ? S(8) : 0;
+                using (GraphicsPath path = Theme.Rounded(r, radius))
                 {
                     using (SolidBrush brush = new SolidBrush(fill)) g.FillPath(brush, path);
                     using (Pen pen = new Pen(Palette.Border)) g.DrawPath(pen, path);

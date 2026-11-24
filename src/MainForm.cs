@@ -61,7 +61,6 @@ namespace DshDesktop
         private int _chromeSplit;                   // pixel where the two meet
         private int _chromeHeight = 40;
         private Theme _theme;
-        private DropShadow _shadow;
 
         public MainForm(Settings settings)
         {
@@ -124,11 +123,10 @@ namespace DshDesktop
                 FitToDesktop();
                 if (_bar != null) LayoutBar(_bar);
                 Launch();
-                ShowShadow();
             };
 
             // Windows 11 rounds frameless windows only when asked; the official
-            // desktop shell comes out rounded, so match it.
+            // desktop shell comes out rounded, so match it. Windows 10 stays square.
             HandleCreated += delegate { RoundShell(); };
             FormClosing += OnFormClosing;
             KeyPreview = true;
@@ -142,38 +140,19 @@ namespace DshDesktop
         {
             try
             {
+                // Square by default. Windows 11 rounds the window through DWM (which also
+                // draws the system's own soft shadow); Windows 10 stays square and uses the
+                // default style, matching dshview-client.
+                Region = null;
                 if (WindowState == FormWindowState.Maximized)
                 {
-                    // Square corners while maximised: a rounded clip leaves the desktop
-                    // showing through as a ring around the window.
-                    Region = null;
                     NativeMethods.SquareCorners(Handle);
-                    HideShadow();
                     return;
                 }
                 NativeMethods.SuppressBorder(Handle);
-                if (NativeMethods.RoundCorners(Handle)) { Region = null; }
-                else
-                {
-                    using (GraphicsPath path = Theme.RoundedExact(new Rectangle(0, 0, Width, Height), S(12)))
-                        Region = new Region(path);
-                }
-                ShowShadow();
+                NativeMethods.RoundCorners(Handle);
             }
             catch { }
-        }
-
-        private void ShowShadow()
-        {
-            if (_shadow == null)
-                _shadow = new DropShadow(this, S(12), S(24), 120);
-            if (WindowState != FormWindowState.Maximized)
-                _shadow.ShowShadow();
-        }
-
-        private void HideShadow()
-        {
-            try { if (_shadow != null) _shadow.Hide(); } catch { }
         }
 
         private int S(int value) { return (int)Math.Round(value * _scale); }
@@ -336,11 +315,19 @@ namespace DshDesktop
                 if (button != null) button.SetTheme(_dark, _chromeRight, symbolControls);
             }
 
-            // No painted rail. The form background used to be a border colour and the
-            // children were inset by one pixel, which put a grey hairline around the
-            // whole window in both themes. The bar and the page now reach the edge.
-            BackColor = _chromeRight;
-            Padding = new Padding(0);
+            // Windows 11 has no painted rail: the content reaches the edge and DWM
+            // draws the rounded frame and soft shadow. Windows 10 keeps the
+            // dshview-client look: a 1px gray border around the window, no rounding.
+            if (NativeMethods.Windows11)
+            {
+                BackColor = _chromeRight;
+                Padding = new Padding(0);
+            }
+            else
+            {
+                BackColor = _dark ? Color.FromArgb(60, 60, 60) : Color.FromArgb(200, 200, 200);
+                Padding = new Padding(1);
+            }
 
             if (_splash != null)
             {
@@ -921,11 +908,15 @@ namespace DshDesktop
             _tray.Visible = true;
 
             RoundedMenu menu = new RoundedMenu(S(6));
-            // The tray menu is the one popup that gets the system's soft shadow.
-            menu.SoftShadow = true;
-            menu.AllRoundShadow = true;
             Theme theme = _theme ?? Theme.FromPage(_dark, _chromeRight);
-            menu.Renderer = new MenuRenderer(theme, _scale);
+            // The tray menu is the one popup that gets the system's soft shadow, and
+            // only on Windows 11; Windows 10 keeps the default square menu.
+            if (NativeMethods.Windows11)
+            {
+                menu.SoftShadow = true;
+                menu.AllRoundShadow = true;
+                menu.Renderer = new MenuRenderer(theme, _scale);
+            }
             menu.Font = new Font("Microsoft YaHei UI", 9f);
             menu.Padding = new Padding(S(7));
             menu.BackColor = theme.Dark ? theme.MenuSurface : Color.White;
@@ -975,7 +966,8 @@ namespace DshDesktop
         private void SyncTrayMenu(RoundedMenu menu)
         {
             Theme theme = _theme ?? Theme.FromPage(_dark, _chromeRight);
-            menu.Renderer = new MenuRenderer(theme, _scale);
+            if (NativeMethods.Windows11)
+                menu.Renderer = new MenuRenderer(theme, _scale);
             menu.BackColor = theme.Dark ? theme.MenuSurface : Color.White;
             if (menu.Items.Count >= 5)
             {
@@ -1609,21 +1601,21 @@ namespace DshDesktop
         {
             Theme theme = _theme ?? Theme.FromPage(_dark, _chromeRight);
             RoundedMenu menu = new RoundedMenu(S(6));
-            menu.Renderer = new MenuRenderer(theme);
-            // The more menu keeps the page white in the light theme; only the select
-            // dropdowns take the deeper tone.
-            menu.BackColor = theme.Dark ? theme.MenuSurface : Color.White;
-            menu.ForeColor = theme.Text;
-            menu.ShowImageMargin = false;
-            menu.ShowCheckMargin = false;
-            // DSH menu metrics: 4px container padding and 34px rows with 8px
-            // side padding. The WinForms defaults are roughly half that, which is
-            // what made the menu look cramped.
-            menu.Font = new Font("Microsoft YaHei UI", 9f);
-            menu.Padding = new Padding(S(7));
-            // The more menu keeps the page white in the light theme; only the select
-            // dropdowns take the deeper tone.
-            menu.BackColor = theme.Dark ? theme.MenuSurface : Color.White;
+
+            // Windows 11 gets the themed rounded menu; Windows 10 keeps the system
+            // default square menu, matching dshview-client.
+            if (NativeMethods.Windows11)
+            {
+                menu.Renderer = new MenuRenderer(theme);
+                // The more menu keeps the page white in the light theme; only the select
+                // dropdowns take the deeper tone.
+                menu.BackColor = theme.Dark ? theme.MenuSurface : Color.White;
+                menu.ForeColor = theme.Text;
+                menu.ShowImageMargin = false;
+                menu.ShowCheckMargin = false;
+                menu.Font = new Font("Microsoft YaHei UI", 9f);
+                menu.Padding = new Padding(S(7));
+            }
 
             menu.Items.Add(Strings.T("menu.settings"), null, delegate { ShowSettings(); });
             menu.Items.Add(Strings.T("menu.update"), null, delegate { ShowUpdate(); });
@@ -1639,30 +1631,28 @@ namespace DshDesktop
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(Strings.T("menu.about"), null, delegate { ShowAbout(); });
 
-            // Symmetric padding on every row: ToolStrip centres the label in a row
-            // sized to its own content, and forcing a fixed height was what left the
-            // text sitting low.
-            // Auto-sizing gives each row the measured height of its own text, which
-            // differs for strings with descenders -- that is what made some rows sit
-            // closer together. Pad every row up to the same height instead, which
-            // also centres the label inside it.
-            int rowHeight = S(34);
-            int textHeight = TextRenderer.MeasureText("Ag", menu.Font).Height;
-            int padY = Math.Max(S(4), (rowHeight - textHeight) / 2);
-            foreach (ToolStripItem item in menu.Items)
+            // Win11 only: pad every row up to the same 34px height and centre its label.
+            if (NativeMethods.Windows11)
             {
-                ToolStripMenuItem entry = item as ToolStripMenuItem;
-                if (entry != null)
+                int rowHeight = S(34);
+                int textHeight = TextRenderer.MeasureText("Ag", menu.Font).Height;
+                int padY = Math.Max(S(4), (rowHeight - textHeight) / 2);
+                foreach (ToolStripItem item in menu.Items)
                 {
-                    entry.Padding = new Padding(S(12), padY, S(12), padY);
-                    entry.TextAlign = ContentAlignment.MiddleLeft;
-                }
-                else
-                {
-                    item.AutoSize = false;
-                    item.Height = S(7);
+                    ToolStripMenuItem entry = item as ToolStripMenuItem;
+                    if (entry != null)
+                    {
+                        entry.Padding = new Padding(S(12), padY, S(12), padY);
+                        entry.TextAlign = ContentAlignment.MiddleLeft;
+                    }
+                    else
+                    {
+                        item.AutoSize = false;
+                        item.Height = S(7);
+                    }
                 }
             }
+
             menu.Show(anchor, new Point(0, anchor.Height));
             // The menu is a separate top-level window, so the page never sees a
             // click outside it; dimming while it is open and clearing on close
@@ -1923,11 +1913,6 @@ namespace DshDesktop
                 if (_view != null)
                 {
                     try { _view.Dispose(); } catch { }
-                }
-                if (_shadow != null)
-                {
-                    try { _shadow.Dispose(); } catch { }
-                    _shadow = null;
                 }
                 if (_server != null)
                 {
