@@ -547,36 +547,36 @@ namespace DshDesktop
         // "next" carries previews; the check re-runs whenever the choice changes.
         private static readonly string[] Channels = new string[] { "latest", "next" };
 
-        public UpdateDialog(Theme theme, Action beforeUpdate) : base(theme, Strings.T("update.title"), 600, 478)
+        public UpdateDialog(Theme theme, Action beforeUpdate) : base(theme, Strings.T("update.title"), 600, 490)
         {
             _beforeUpdate = beforeUpdate;
             _scale = Scale;
             _theme_dark = theme.Dark;
 
             _installedVersion = Maintenance.InstalledVersion();
-            AddText(Strings.T("update.current") + ":", 20, 64, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
-            _installed = AddText(_installedVersion, 146, 64, 430, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
+            AddText(Strings.T("update.current") + ":", 20, 76, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
+            _installed = AddText(_installedVersion, 146, 76, 430, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
 
-            AddText(Strings.T("update.channel") + ":", 20, 94, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
+            AddText(Strings.T("update.channel") + ":", 20, 106, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
             _channel = new SelectCell(theme, _scale);
             _channel.Items = new string[] { "latest", "next" };
             _channel.SelectedIndex = 0;
-            _channel.SetBounds(S(146), S(90), S(160), S(30));
+            _channel.SetBounds(S(146), S(102), S(160), S(30));
             _channel.SelectionChanged += delegate { Check(); };
             Controls.Add(_channel);
             _channel.BringToFront();
 
-            AddText(Strings.T("update.latest") + ":", 20, 128, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
-            _latest = AddText("…", 146, 128, 430, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
+            AddText(Strings.T("update.latest") + ":", 20, 140, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
+            _latest = AddText("…", 146, 140, 430, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
 
-            AddText(Strings.T("update.force"), 20, 158, 300, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
+            AddText(Strings.T("update.force"), 20, 170, 300, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
             _force = new ToggleSwitch(theme, false, _scale);
-            _force.SetBounds(S(452), S(160), S(46), S(24));
+            _force.SetBounds(S(452), S(172), S(46), S(24));
             _force.CheckedChanged += delegate { UpdateAvailability(); };
             Controls.Add(_force);
             _force.BringToFront();
 
-            _status = AddText(Strings.T("update.hint"), 20, 190, 560, 34,
+            _status = AddText(Strings.T("update.hint"), 20, 202, 560, 34,
                 new Font("Microsoft YaHei UI", 8.5f), Palette.TextMuted);
 
             _log = new TextBox();
@@ -590,14 +590,14 @@ namespace DshDesktop
             _log.BackColor = theme.Dark ? App.Shift(theme.Surface, -6) : Color.FromArgb(248, 249, 251);
             _log.ForeColor = theme.TextMuted;
             _log.Font = new Font("Consolas", 8.5f);
-            _log.SetBounds(S(20), S(232), S(560), S(168));
+            _log.SetBounds(S(20), S(244), S(560), S(168));
             Controls.Add(_log);
             _log.BringToFront();
 
-            _close = AddButton(Strings.T("update.close"), 508, 432, 72, false);
+            _close = AddButton(Strings.T("update.close"), 508, 444, 72, false);
             _close.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
 
-            _update = AddButton(Strings.T("update.now"), 392, 432, 108, true);
+            _update = AddButton(Strings.T("update.now"), 392, 444, 108, true);
             _update.Enabled = false;
             _update.Click += delegate { Apply(); };
             SetUpdateEnabled(false);
