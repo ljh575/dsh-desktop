@@ -938,14 +938,9 @@ namespace DshDesktop
             {
                 App.Log("tray menu Opening");
                 // The WebView2 re-takes focus the instant the popup appears, which
-                // dismisses it via AppFocusChange. Hide the WebView2 content while the
-                // menu is up so it cannot steal focus; restore it on close.
-                try
-                {
-                    if (_view != null && _view.CoreWebView2 != null)
-                        _view.CoreWebView2Controller.IsVisible = false;
-                }
-                catch { }
+                // dismisses it via AppFocusChange. Hide it while the menu is up so it
+                // cannot steal focus; restore it on close.
+                try { if (_view != null) _view.Visible = false; } catch { }
                 SyncTrayMenu(menu);
             };
             menu.Opened += delegate { App.Log("tray menu Opened, bounds=" + menu.Bounds); };
@@ -956,12 +951,7 @@ namespace DshDesktop
             menu.Closed += delegate(object s, ToolStripDropDownClosedEventArgs e)
             {
                 App.Log("tray menu Closed, reason=" + e.CloseReason);
-                try
-                {
-                    if (_view != null && _view.CoreWebView2 != null)
-                        _view.CoreWebView2Controller.IsVisible = true;
-                }
-                catch { }
+                try { if (_view != null) _view.Visible = true; } catch { }
             };
             _trayMenu = menu;
             if (_tray != null) _tray.ContextMenuStrip = menu;
