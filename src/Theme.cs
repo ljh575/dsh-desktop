@@ -722,9 +722,10 @@ namespace DshDesktop
         private readonly int _radius;
         private readonly Timer _closeTimer;
 
-        // The tray menu is shown by the notification icon, which chokes on the rounded
-        // region on Windows 11 and stops re-showing after the first open; it stays square.
-        public bool Square;
+        // The notification icon's popup does not need the click-away timer: it is shown
+        // over the desktop (not the WebView2 page) and closes on deactivate. The timer
+        // disturbed its re-show after the first open, so it is skipped there.
+        public bool NoAutoClose;
 
         public RoundedMenu(int radius)
         {
@@ -760,7 +761,7 @@ namespace DshDesktop
         {
             base.OnOpened(e);
             ApplyShape();
-            _closeTimer.Start();
+            if (!NoAutoClose) _closeTimer.Start();
         }
 
         protected override void OnClosed(ToolStripDropDownClosedEventArgs e)
@@ -795,7 +796,7 @@ namespace DshDesktop
                 // DWMWA_WINDOW_CORNER_PREFERENCE / DWMWA_BORDER_COLOR on a ToolStripDropDown
                 // interfere with its own rendering and stop the items from receiving clicks.
                 Region = null;
-                if (NativeMethods.Windows11 && !Square)
+                if (NativeMethods.Windows11)
                 {
                     using (GraphicsPath path = Theme.RoundedExact(new Rectangle(0, 0, Width, Height), _radius))
                         Region = new Region(path);
