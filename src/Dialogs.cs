@@ -23,7 +23,6 @@ namespace DshDesktop
         protected readonly Theme Palette;
         protected new readonly float Scale;
         private readonly Panel _header;
-        private readonly Panel _rule;
         private readonly Label _titleLabel;
         private readonly ChromeButton _close;
 
@@ -36,16 +35,23 @@ namespace DshDesktop
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterParent;
             ShowInTaskbar = false;
-            BackColor = palette.Surface;
+            // Windows 10 keeps a 1px gray border (dshview-client look); Windows 11 has
+            // no painted rail and gets its frame and soft shadow from DWM.
+            if (NativeMethods.Windows11)
+            {
+                BackColor = palette.Surface;
+                Padding = new Padding(0);
+            }
+            else
+            {
+                BackColor = palette.Dark ? Color.FromArgb(60, 60, 60) : Color.FromArgb(200, 200, 200);
+                Padding = new Padding(1);
+            }
             ForeColor = palette.Text;
             Font = new Font("Microsoft YaHei UI", 9f);
             ClientSize = new Size(S(width), S(height));
             try { Icon = App.PickThemeIcon(App.S != null ? App.S.Icon : "default"); } catch { }
             DoubleBuffered = true;
-
-            // A borderless dialog over a page of the same tone has no edge at all;
-            // the drop shadow is what separates them once a light theme matches.
-            EnableDropShadow();
 
             _header = new Panel();
             _header.Dock = DockStyle.Top;
@@ -53,15 +59,6 @@ namespace DshDesktop
             _header.BackColor = palette.Header;
             _header.Paint += delegate(object sender, PaintEventArgs e) { PaintHeader(e.Graphics); };
             Controls.Add(_header);
-
-            // The hairline under the header is its own control: drawn inside the
-            // header it was covered by the title and the close button, leaving two
-            // stray dark dashes at the ends.
-            _rule = new Panel();
-            _rule.Dock = DockStyle.Top;
-            _rule.Height = S(1);
-            _rule.BackColor = palette.Border;
-            Controls.Add(_rule);
 
             _titleLabel = new Label();
             _titleLabel.Text = title;
@@ -88,36 +85,6 @@ namespace DshDesktop
             LayoutHeader();
             Resize += delegate { ApplyRegion(); };
             ApplyRegion();
-        }
-
-        private const int CS_DROPSHADOW = 0x00020000;
-        private const int GCL_STYLE = -26;
-
-        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
-        private static extern int GetClassLong(IntPtr hWnd, int index);
-
-        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
-        private static extern int SetClassLong(IntPtr hWnd, int index, int value);
-
-        private void EnableDropShadow()
-        {
-            if (!NativeMethods.Windows11) return;   // Windows 10 keeps no shadow
-            try
-            {
-                // Only takes effect while the window has no native frame; called
-                // again on handle creation for that reason.
-                HandleCreated += delegate
-                {
-                    try
-                    {
-                        int style = GetClassLong(Handle, GCL_STYLE);
-                        SetClassLong(Handle, GCL_STYLE, style | CS_DROPSHADOW);
-                    }
-                    catch { }
-                };
-                if (IsHandleCreated) CreateControl();
-            }
-            catch { }
         }
 
         protected virtual void OnTitleClose() { DialogResult = DialogResult.Cancel; Close(); }

@@ -243,12 +243,12 @@ namespace DshDesktop
             if (_items.Length == 0) return;
             RoundedMenu menu = new RoundedMenu(Math.Max(4, (int)Math.Round(6 * _scale)));
             bool styled = NativeMethods.Windows11;
+            menu.Renderer = new MenuRenderer(_theme, _scale);
+            menu.BackColor = _theme.MenuSurface;
             if (styled)
             {
-                menu.Renderer = new MenuRenderer(_theme, _scale);
                 menu.Font = new Font("Microsoft YaHei UI", 9f);
                 menu.Padding = new Padding((int)Math.Round(6 * _scale));
-                menu.BackColor = _theme.MenuSurface;
                 // The native check margin paints a small square, so the tick is drawn
                 // by the renderer at the right edge of the row instead.
                 menu.ShowCheckMargin = false;
@@ -729,59 +729,11 @@ namespace DshDesktop
     // than once when it is created.
     internal sealed class RoundedMenu : ContextMenuStrip
     {
-        private readonly int _radius;
         private NativeMethods.MouseHookProc _hook;
         private IntPtr _hookHandle = IntPtr.Zero;
 
-        // The tray menu asks Windows for its own soft drop shadow, which follows the
-        // rounded region. The other popups keep it off, since a shadow would then sit
-        // outside the strip and add padding.
-        public bool SoftShadow;
-
-        // A compositor-drawn shadow reaches every side; the class style only draws
-        // one at the bottom right. Applied to the popup handle once it exists.
-        public bool AllRoundShadow;
-
-        private void ApplyAllRoundShadow()
-        {
-            if (!AllRoundShadow || !NativeMethods.Windows11) return;
-            try
-            {
-                MARGINS margins = new MARGINS();
-                margins.Left = 1;
-                margins.Right = 1;
-                margins.Top = 1;
-                margins.Bottom = 1;
-                DwmExtendFrameIntoClientArea(Handle, ref margins);
-            }
-            catch { }
-        }
-
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct MARGINS
-        {
-            public int Left;
-            public int Right;
-            public int Top;
-            public int Bottom;
-        }
-
-        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
-        private static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS margins);
-
-        protected override CreateParams CreateParams
-        {
-            get
-            {
-                CreateParams cp = base.CreateParams;
-                if (SoftShadow) cp.ClassStyle |= 0x00020000; // CS_DROPSHADOW
-                return cp;
-            }
-        }
-
         public RoundedMenu(int radius)
         {
-            _radius = Math.Max(4, radius);
             DropShadowEnabled = false;
         }
 
@@ -789,7 +741,6 @@ namespace DshDesktop
         {
             base.OnOpened(e);
             ApplyShape();
-            ApplyAllRoundShadow();
 
             // A menu is its own window, so a click on the page behind it never reaches
             // the strip and it stayed open. The hook sees every button press and closes
@@ -839,13 +790,17 @@ namespace DshDesktop
 
         private void ApplyShape()
         {
-            // Windows 10 keeps the default square menu, matching dshview-client.
-            if (!NativeMethods.Windows11) return;
             if (Width <= 0 || Height <= 0) return;
             try
             {
-                using (GraphicsPath path = Theme.RoundedExact(new Rectangle(0, 0, Width, Height), _radius))
-                    Region = new Region(path);
+                // Windows 11 rounds the popup through DWM, which also draws the system's
+                // soft shadow; Windows 10 stays square with no shadow.
+                Region = null;
+                if (NativeMethods.Windows11)
+                {
+                    NativeMethods.SuppressBorder(Handle);
+                    NativeMethods.RoundCorners(Handle);
+                }
             }
             catch { }
         }
@@ -857,12 +812,18 @@ namespace DshDesktop
 
         private readonly float _scale;
 
+        private readonly bool _rounded;
+
+        // The tray menu draws a 1px gray frame on Windows 10; the other popups do not.
+        public bool Border;
+
         public MenuRenderer(Theme theme) : this(theme, 1f) { }
 
         public MenuRenderer(Theme theme, float scale) : base(new MenuColors(theme))
         {
             _theme = theme;
             _scale = scale <= 0 ? 1f : scale;
+            _rounded = NativeMethods.Windows11;
             RoundedEdges = false;
         }
 
@@ -874,18 +835,33 @@ namespace DshDesktop
 
         protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
         {
-            // No frame: the popup is told apart by its own tone, and a rectangle
-            // border inside a rounded region leaves visible cut corners.
+            // Windows 10 draws a 1px gray frame around the tray menu; Windows 11 lets
+            // the rounded shape and its system shadow separate it from the page.
+            if (_rounded || !Border) return;
+            using (Pen pen = new Pen(_theme.Border))
+                e.Graphics.DrawRectangle(pen, 0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1);
         }
 
         protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
         {
             if (e.Item.Selected && e.Item.Enabled)
             {
-                Rectangle r = new Rectangle(4, 1, e.Item.Width - 8, e.Item.Height - 2);
+                Rectangle r;
+                int radius;
+                if (_rounded)
+                {
+                    r = new Rectangle(4, 1, e.Item.Width - 8, e.Item.Height - 2);
+                    radius = 12;
+                }
+                else
+                {
+                    // Windows 10: the hover fills the whole row, square.
+                    r = new Rectangle(0, 0, e.Item.Width, e.Item.Height);
+                    radius = 0;
+                }
                 // A hint of emphasis rather than a block of colour.
                 Color tint = _theme.Dark ? Color.FromArgb(26, 255, 255, 255) : Color.FromArgb(16, 0, 0, 0);
-                using (GraphicsPath path = Theme.Rounded(r, 12))
+                using (GraphicsPath path = Theme.Rounded(r, radius))
                 using (SolidBrush brush = new SolidBrush(tint))
                     e.Graphics.FillPath(brush, path);
             }
@@ -896,7 +872,6 @@ namespace DshDesktop
             if (e.Item.Tag is bool && (bool)e.Item.Tag)
             {
                 Rectangle bounds = e.Item.Bounds;
-            App.Log("render text: [" + (e.Item.Text ?? "") + "] bounds=" + bounds + " h=" + e.Item.Height + " auto=" + e.Item.AutoSize);
                 Rectangle box = new Rectangle(
                     bounds.Right - (int)Math.Round(_scale * 26), bounds.Top,
                     (int)Math.Round(_scale * 18), bounds.Height);

@@ -909,19 +909,19 @@ namespace DshDesktop
 
             RoundedMenu menu = new RoundedMenu(S(6));
             Theme theme = _theme ?? Theme.FromPage(_dark, _chromeRight);
-            // The tray menu is the one popup that gets the system's soft shadow, and
-            // only on Windows 11; Windows 10 keeps the default square menu.
+            // The renderer is OS-aware: rounded + system shadow on Windows 11, square
+            // with a 1px gray frame on Windows 10. The background follows the theme.
+            MenuRenderer renderer = new MenuRenderer(theme, _scale);
+            renderer.Border = true;
+            menu.Renderer = renderer;
+            menu.BackColor = theme.Dark ? theme.MenuSurface : Color.White;
             if (NativeMethods.Windows11)
             {
-                menu.SoftShadow = true;
-                menu.AllRoundShadow = true;
-                menu.Renderer = new MenuRenderer(theme, _scale);
+                menu.Font = new Font("Microsoft YaHei UI", 9f);
+                menu.Padding = new Padding(S(7));
+                menu.ShowImageMargin = false;
+                menu.ShowCheckMargin = false;
             }
-            menu.Font = new Font("Microsoft YaHei UI", 9f);
-            menu.Padding = new Padding(S(7));
-            menu.BackColor = theme.Dark ? theme.MenuSurface : Color.White;
-            menu.ShowImageMargin = false;
-            menu.ShowCheckMargin = false;
             menu.Items.Add(Strings.T("tray.show"), null, delegate { RestoreFromTray(); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(Strings.T("menu.settings"), null, delegate { ShowSettings(); });
@@ -966,8 +966,9 @@ namespace DshDesktop
         private void SyncTrayMenu(RoundedMenu menu)
         {
             Theme theme = _theme ?? Theme.FromPage(_dark, _chromeRight);
-            if (NativeMethods.Windows11)
-                menu.Renderer = new MenuRenderer(theme, _scale);
+            MenuRenderer renderer = new MenuRenderer(theme, _scale);
+            renderer.Border = true;
+            menu.Renderer = renderer;
             menu.BackColor = theme.Dark ? theme.MenuSurface : Color.White;
             if (menu.Items.Count >= 5)
             {
@@ -976,21 +977,16 @@ namespace DshDesktop
                 menu.Items[3].Text = Strings.T("menu.about");
                 menu.Items[4].Text = Strings.T("tray.quit");
             }
-            int rowHeight = S(34);
             foreach (ToolStripItem entry in menu.Items)
             {
                 entry.ForeColor = theme.Text;
-                Size want = entry.GetPreferredSize(Size.Empty);
-                int padY = Math.Max(S(4), (rowHeight - want.Height) / 2);
-                entry.Padding = new Padding(0, padY, 0, padY);
-            }
-            int widest = 0;
-            int total = menu.Padding.Vertical;
-            foreach (ToolStripItem entry in menu.Items)
-            {
-                Size want = entry.GetPreferredSize(Size.Empty);
-                widest = Math.Max(widest, want.Width);
-                total += want.Height;
+                if (NativeMethods.Windows11)
+                {
+                    int rowHeight = S(34);
+                    Size want = entry.GetPreferredSize(Size.Empty);
+                    int padY = Math.Max(S(4), (rowHeight - want.Height) / 2);
+                    entry.Padding = new Padding(0, padY, 0, padY);
+                }
             }
             // Let the strip hug its own content: a forced width is what made the tray
             // menu far wider than its labels.
@@ -1602,14 +1598,12 @@ namespace DshDesktop
             Theme theme = _theme ?? Theme.FromPage(_dark, _chromeRight);
             RoundedMenu menu = new RoundedMenu(S(6));
 
-            // Windows 11 gets the themed rounded menu; Windows 10 keeps the system
-            // default square menu, matching dshview-client.
+            // The renderer is OS-aware: rounded on Windows 11, square on Windows 10.
+            // The background follows the theme on both.
+            menu.Renderer = new MenuRenderer(theme);
+            menu.BackColor = theme.Dark ? theme.MenuSurface : Color.White;
             if (NativeMethods.Windows11)
             {
-                menu.Renderer = new MenuRenderer(theme);
-                // The more menu keeps the page white in the light theme; only the select
-                // dropdowns take the deeper tone.
-                menu.BackColor = theme.Dark ? theme.MenuSurface : Color.White;
                 menu.ForeColor = theme.Text;
                 menu.ShowImageMargin = false;
                 menu.ShowCheckMargin = false;
