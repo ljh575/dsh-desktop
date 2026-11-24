@@ -733,57 +733,58 @@ namespace DshDesktop
     internal sealed class RoundedMenu : ContextMenuStrip
     {
         private readonly int _radius;
-        private NativeMethods.MouseHookProc _hook;
-        private IntPtr _hookHandle = IntPtr.Zero;
+        private readonly Timer _closeTimer;
 
         public RoundedMenu(int radius)
         {
             _radius = Math.Max(4, radius);
             DropShadowEnabled = false;
+
+            // A menu is its own window, so a click on the page behind it never reaches
+            // the strip and it stayed open. A low-level mouse hook turned out to be too
+            // invasive here: at scaled DPI its WindowFromPoint check could dismiss the
+            // menu on its own items (breaking the "more" menu) and disturb the tray
+            // popup. Polling the async key state only while the menu is open is
+            // contained and DPI-safe (WinForms MousePosition/Bounds are already in
+            // screen pixels) and never interferes with item clicks or the right-click
+            // that opens the tray menu.
+            _closeTimer = new Timer();
+            _closeTimer.Interval = 80;
+            _closeTimer.Tick += delegate
+            {
+                try
+                {
+                    if (!Visible) { _closeTimer.Stop(); return; }
+                    // VK_LBUTTON = 0x01. Only the left button is watched: the right
+                    // button is what opens the tray menu, so it must never close it.
+                    bool leftDown = (NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0;
+                    if (leftDown && !Bounds.Contains(Control.MousePosition))
+                        Close();
+                }
+                catch { }
+            };
         }
 
         protected override void OnOpened(EventArgs e)
         {
             base.OnOpened(e);
             ApplyShape();
-
-            // A menu is its own window, so a click on the page behind it never reaches
-            // the strip and it stayed open. The hook closes it when the press lands on
-            // anything other than the menu itself. WindowFromPoint (not a bounds check)
-            // keeps it from dismissing the menu on its own items at scaled DPI.
-            _hook = delegate(int code, IntPtr wParam, IntPtr lParam)
-            {
-                if (code >= 0)
-                {
-                    int message = wParam.ToInt32();
-                    if (message == 0x0201 || message == 0x0204)
-                    {
-                        NativeMethods.MOUSEHOOKSTRUCT point = (NativeMethods.MOUSEHOOKSTRUCT)
-                            System.Runtime.InteropServices.Marshal.PtrToStructure(
-                                lParam, typeof(NativeMethods.MOUSEHOOKSTRUCT));
-                        IntPtr under = NativeMethods.WindowFromPoint(point.pt);
-                        if (under != Handle && under != IntPtr.Zero && Visible)
-                        {
-                            try { BeginInvoke((MethodInvoker)delegate { Close(); }); }
-                            catch { }
-                        }
-                    }
-                }
-                return NativeMethods.CallNextHookEx(_hookHandle, code, wParam, lParam);
-            };
-            _hookHandle = NativeMethods.SetWindowsHookEx(
-                NativeMethods.WH_MOUSE_LL, _hook, NativeMethods.GetModuleHandle(null), 0);
+            _closeTimer.Start();
         }
 
         protected override void OnClosed(ToolStripDropDownClosedEventArgs e)
         {
-            if (_hookHandle != IntPtr.Zero)
-            {
-                NativeMethods.UnhookWindowsHookEx(_hookHandle);
-                _hookHandle = IntPtr.Zero;
-                _hook = null;
-            }
+            try { _closeTimer.Stop(); } catch { }
             base.OnClosed(e);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                try { _closeTimer.Dispose(); } catch { }
+            }
+            base.Dispose(disposing);
         }
 
         protected override void OnResize(EventArgs e)
