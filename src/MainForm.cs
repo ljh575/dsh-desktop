@@ -899,6 +899,26 @@ namespace DshDesktop
             catch (Exception ex) { App.Log("ini cleanup failed: " + ex.Message); }
         }
 
+        // The WebView2's Chromium window re-takes focus the instant the tray menu opens,
+        // which dismisses the menu via AppFocusChange. Clear the WinForms active control
+        // and also move the Chromium focus out (Next) so it cannot grab focus back.
+        private void MoveFocusOffWebView2()
+        {
+            try { ActiveControl = null; } catch { }
+            try
+            {
+                if (_view == null) return;
+                var f = typeof(Microsoft.Web.WebView2.WinForms.WebView2)
+                    .GetField("_coreWebView2Controller", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                if (f == null) return;
+                var ctrl = f.GetValue(_view);
+                if (ctrl == null) return;
+                var m = ctrl.GetType().GetMethod("MoveFocus");
+                if (m != null) m.Invoke(ctrl, new object[] { 1 }); // CoreWebView2MoveFocusReason.Next
+            }
+            catch { }
+        }
+
         private void SetupTray()
         {
             _tray = new NotifyIcon();
@@ -937,9 +957,7 @@ namespace DshDesktop
             menu.Opening += delegate
             {
                 App.Log("tray menu Opening");
-                // Move focus off the WebView2 so its Chromium window cannot re-take
-                // focus and dismiss the menu via AppFocusChange.
-                try { ActiveControl = null; } catch { }
+                MoveFocusOffWebView2();
                 SyncTrayMenu(menu);
             };
             menu.Opened += delegate { App.Log("tray menu Opened, bounds=" + menu.Bounds); };
