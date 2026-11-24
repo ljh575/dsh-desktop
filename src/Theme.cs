@@ -22,6 +22,14 @@ namespace DshDesktop
         public Color AccentText;
         public Color Hover;
 
+        // The row height of the launcher's menus. Windows 11 keeps the taller DSH-like
+        // 34px rows; Windows 10 uses a slightly tighter 28px so the "more" menu is not
+        // cramped while the tray menu is not airy.
+        internal static int MenuRowHeight(float scale)
+        {
+            return (int)Math.Round((NativeMethods.Windows11 ? 34 : 28) * scale);
+        }
+
         // Derived from the colour the page is actually using, so a themed dialog
         // does not clash with the window it opens over. The dialog has to read as
         // a separate surface floating above the page, so it is a clear step

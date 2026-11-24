@@ -55,7 +55,7 @@ namespace DshDesktop
             if (height == ClientSize.Height && width == ClientSize.Width) return;
 
             ClientSize = new Size(width, height);
-            _body.SetBounds(S(0), S(53), width, height - S(53) - S(64));
+            _body.SetBounds(BorderSize, S(53), width - BorderSize * 2, height - S(53) - S(64));
             LayoutScroll();
 
             // CenterParent ran against the pre-resize size, so re-center now;
@@ -78,7 +78,7 @@ namespace DshDesktop
             try { _ini = IniFile.Load(App.IniPath); }
             catch { _ini = IniFile.Empty(); }
 
-            _body.SetBounds(S(0), S(53), ClientSize.Width, ClientSize.Height - S(53) - S(64));
+            _body.SetBounds(BorderSize, S(53), ClientSize.Width - BorderSize * 2, ClientSize.Height - S(53) - S(64));
             _body.BackColor = Palette.Surface;
             _body.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(_body);

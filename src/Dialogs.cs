@@ -53,6 +53,17 @@ namespace DshDesktop
             try { Icon = App.PickThemeIcon(App.S != null ? App.S.Icon : "default"); } catch { }
             DoubleBuffered = true;
 
+            // Windows 10: a Surface-coloured backing panel sits behind everything so
+            // the content background matches the label backgrounds, leaving only the
+            // 1px gray rail from the form's own BackColor.
+            if (!NativeMethods.Windows11)
+            {
+                Panel bg = new Panel();
+                bg.Dock = DockStyle.Fill;
+                bg.BackColor = palette.Surface;
+                Controls.Add(bg);
+            }
+
             _header = new Panel();
             _header.Dock = DockStyle.Top;
             _header.Height = S(52);
@@ -90,6 +101,9 @@ namespace DshDesktop
         protected virtual void OnTitleClose() { DialogResult = DialogResult.Cancel; Close(); }
 
         protected int S(int value) { return (int)Math.Round(value * Scale); }
+
+        // The 1px gray rail inset on Windows 10; zero on Windows 11.
+        protected int BorderSize { get { return NativeMethods.Windows11 ? 0 : 1; } }
 
         private void LayoutHeader()
         {

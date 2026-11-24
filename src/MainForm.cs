@@ -915,12 +915,12 @@ namespace DshDesktop
             renderer.Border = true;
             menu.Renderer = renderer;
             menu.BackColor = theme.Dark ? theme.MenuSurface : Color.White;
+            menu.ShowImageMargin = false;
+            menu.ShowCheckMargin = false;
             if (NativeMethods.Windows11)
             {
                 menu.Font = new Font("Microsoft YaHei UI", 9f);
                 menu.Padding = new Padding(S(7));
-                menu.ShowImageMargin = false;
-                menu.ShowCheckMargin = false;
             }
             menu.Items.Add(Strings.T("tray.show"), null, delegate { RestoreFromTray(); });
             menu.Items.Add(new ToolStripSeparator());
@@ -941,16 +941,8 @@ namespace DshDesktop
             {
                 entry.ForeColor = theme.Text;
                 Size want = entry.GetPreferredSize(Size.Empty);
-                int padY = Math.Max(S(4), (S(34) - want.Height) / 2);
+                int padY = Math.Max(S(4), (Theme.MenuRowHeight(_scale) - want.Height) / 2);
                 entry.Padding = new Padding(0, padY, 0, padY);
-            }
-            int widest = 0;
-            int total = menu.Padding.Vertical;
-            foreach (ToolStripItem entry in menu.Items)
-            {
-                Size want = entry.GetPreferredSize(Size.Empty);
-                widest = Math.Max(widest, want.Width);
-                total += want.Height;
             }
             // Let the strip hug its own content: a forced width is what made the tray
             // menu far wider than its labels.
@@ -980,13 +972,9 @@ namespace DshDesktop
             foreach (ToolStripItem entry in menu.Items)
             {
                 entry.ForeColor = theme.Text;
-                if (NativeMethods.Windows11)
-                {
-                    int rowHeight = S(34);
-                    Size want = entry.GetPreferredSize(Size.Empty);
-                    int padY = Math.Max(S(4), (rowHeight - want.Height) / 2);
-                    entry.Padding = new Padding(0, padY, 0, padY);
-                }
+                Size want = entry.GetPreferredSize(Size.Empty);
+                int padY = Math.Max(S(4), (Theme.MenuRowHeight(_scale) - want.Height) / 2);
+                entry.Padding = new Padding(0, padY, 0, padY);
             }
             // Let the strip hug its own content: a forced width is what made the tray
             // menu far wider than its labels.
@@ -1599,14 +1587,15 @@ namespace DshDesktop
             RoundedMenu menu = new RoundedMenu(S(6));
 
             // The renderer is OS-aware: rounded on Windows 11, square on Windows 10.
-            // The background follows the theme on both.
+            // The background follows the theme on both, and the left icon/check column
+            // is hidden so no darker strip shows beside the labels.
             menu.Renderer = new MenuRenderer(theme);
             menu.BackColor = theme.Dark ? theme.MenuSurface : Color.White;
+            menu.ShowImageMargin = false;
+            menu.ShowCheckMargin = false;
             if (NativeMethods.Windows11)
             {
                 menu.ForeColor = theme.Text;
-                menu.ShowImageMargin = false;
-                menu.ShowCheckMargin = false;
                 menu.Font = new Font("Microsoft YaHei UI", 9f);
                 menu.Padding = new Padding(S(7));
             }
@@ -1625,25 +1614,22 @@ namespace DshDesktop
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(Strings.T("menu.about"), null, delegate { ShowAbout(); });
 
-            // Win11 only: pad every row up to the same 34px height and centre its label.
-            if (NativeMethods.Windows11)
+            // Pad every row to a fixed height and centre its label on both OSes.
+            int rowHeight = Theme.MenuRowHeight(_scale);
+            int textHeight = TextRenderer.MeasureText("Ag", menu.Font ?? SystemFonts.MenuFont).Height;
+            int padY = Math.Max(S(4), (rowHeight - textHeight) / 2);
+            foreach (ToolStripItem item in menu.Items)
             {
-                int rowHeight = S(34);
-                int textHeight = TextRenderer.MeasureText("Ag", menu.Font).Height;
-                int padY = Math.Max(S(4), (rowHeight - textHeight) / 2);
-                foreach (ToolStripItem item in menu.Items)
+                ToolStripMenuItem entry = item as ToolStripMenuItem;
+                if (entry != null)
                 {
-                    ToolStripMenuItem entry = item as ToolStripMenuItem;
-                    if (entry != null)
-                    {
-                        entry.Padding = new Padding(S(12), padY, S(12), padY);
-                        entry.TextAlign = ContentAlignment.MiddleLeft;
-                    }
-                    else
-                    {
-                        item.AutoSize = false;
-                        item.Height = S(7);
-                    }
+                    entry.Padding = new Padding(S(12), padY, S(12), padY);
+                    entry.TextAlign = ContentAlignment.MiddleLeft;
+                }
+                else
+                {
+                    item.AutoSize = false;
+                    item.Height = S(7);
                 }
             }
 
