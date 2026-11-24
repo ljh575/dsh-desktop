@@ -35,34 +35,17 @@ namespace DshDesktop
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterParent;
             ShowInTaskbar = false;
-            // Windows 10 keeps a 1px gray border (dshview-client look); Windows 11 has
-            // no painted rail and gets its frame and soft shadow from DWM.
-            if (NativeMethods.Windows11)
-            {
-                BackColor = palette.Surface;
-                Padding = new Padding(0);
-            }
-            else
-            {
-                BackColor = palette.Dark ? Color.FromArgb(60, 60, 60) : Color.FromArgb(200, 200, 200);
-                Padding = new Padding(1);
-            }
+            // The form's own background is the surface colour, so every custom-painted
+            // child that clears with Parent.BackColor blends in. Windows 10 draws a 1px
+            // gray rail in OnPaintBackground and insets its children; Windows 11 has no
+            // rail and gets its frame and soft shadow from DWM.
+            BackColor = palette.Surface;
+            Padding = new Padding(NativeMethods.Windows11 ? 0 : 1);
             ForeColor = palette.Text;
             Font = new Font("Microsoft YaHei UI", 9f);
             ClientSize = new Size(S(width), S(height));
             try { Icon = App.PickThemeIcon(App.S != null ? App.S.Icon : "default"); } catch { }
             DoubleBuffered = true;
-
-            // Windows 10: a Surface-coloured backing panel sits behind everything so
-            // the content background matches the label backgrounds, leaving only the
-            // 1px gray rail from the form's own BackColor.
-            if (!NativeMethods.Windows11)
-            {
-                Panel bg = new Panel();
-                bg.Dock = DockStyle.Fill;
-                bg.BackColor = palette.Surface;
-                Controls.Add(bg);
-            }
 
             _header = new Panel();
             _header.Dock = DockStyle.Top;
@@ -118,6 +101,19 @@ namespace DshDesktop
         {
             using (SolidBrush brush = new SolidBrush(Palette.Header))
                 g.FillRectangle(brush, _header.ClientRectangle);
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            base.OnPaintBackground(e);
+            // Windows 10: the 1px gray rail is drawn here (before the children), so the
+            // form's BackColor stays the surface colour and custom controls that clear
+            // with Parent.BackColor keep blending instead of leaving a gray square.
+            if (!NativeMethods.Windows11)
+            {
+                using (Pen pen = new Pen(Palette.Dark ? Color.FromArgb(60, 60, 60) : Color.FromArgb(200, 200, 200)))
+                    e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+            }
         }
 
         private void ApplyRegion()
@@ -551,36 +547,36 @@ namespace DshDesktop
         // "next" carries previews; the check re-runs whenever the choice changes.
         private static readonly string[] Channels = new string[] { "latest", "next" };
 
-        public UpdateDialog(Theme theme, Action beforeUpdate) : base(theme, Strings.T("update.title"), 600, 480)
+        public UpdateDialog(Theme theme, Action beforeUpdate) : base(theme, Strings.T("update.title"), 600, 514)
         {
             _beforeUpdate = beforeUpdate;
             _scale = Scale;
             _theme_dark = theme.Dark;
 
             _installedVersion = Maintenance.InstalledVersion();
-            AddText(Strings.T("update.current") + ":", 20, 52, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
-            _installed = AddText(_installedVersion, 146, 52, 430, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
+            AddText(Strings.T("update.current") + ":", 20, 82, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
+            _installed = AddText(_installedVersion, 146, 82, 430, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
 
-            AddText(Strings.T("update.channel") + ":", 20, 82, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
+            AddText(Strings.T("update.channel") + ":", 20, 112, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
             _channel = new SelectCell(theme, _scale);
             _channel.Items = new string[] { "latest", "next" };
             _channel.SelectedIndex = 0;
-            _channel.SetBounds(S(146), S(78), S(160), S(30));
+            _channel.SetBounds(S(146), S(108), S(160), S(30));
             _channel.SelectionChanged += delegate { Check(); };
             Controls.Add(_channel);
             _channel.BringToFront();
 
-            AddText(Strings.T("update.latest") + ":", 20, 116, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
-            _latest = AddText("…", 146, 116, 430, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
+            AddText(Strings.T("update.latest") + ":", 20, 146, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
+            _latest = AddText("…", 146, 146, 430, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
 
-            AddText(Strings.T("update.force"), 20, 146, 300, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
+            AddText(Strings.T("update.force"), 20, 176, 300, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
             _force = new ToggleSwitch(theme, false, _scale);
-            _force.SetBounds(S(452), S(148), S(46), S(24));
+            _force.SetBounds(S(452), S(178), S(46), S(24));
             _force.CheckedChanged += delegate { UpdateAvailability(); };
             Controls.Add(_force);
             _force.BringToFront();
 
-            _status = AddText(Strings.T("update.hint"), 20, 178, 560, 34,
+            _status = AddText(Strings.T("update.hint"), 20, 208, 560, 34,
                 new Font("Microsoft YaHei UI", 8.5f), Palette.TextMuted);
 
             _log = new TextBox();
@@ -594,14 +590,14 @@ namespace DshDesktop
             _log.BackColor = theme.Dark ? App.Shift(theme.Surface, -6) : Color.FromArgb(248, 249, 251);
             _log.ForeColor = theme.TextMuted;
             _log.Font = new Font("Consolas", 8.5f);
-            _log.SetBounds(S(20), S(220), S(560), S(180));
+            _log.SetBounds(S(20), S(250), S(560), S(180));
             Controls.Add(_log);
             _log.BringToFront();
 
-            _close = AddButton(Strings.T("update.close"), 508, 420, 72, false);
+            _close = AddButton(Strings.T("update.close"), 508, 450, 72, false);
             _close.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
 
-            _update = AddButton(Strings.T("update.now"), 392, 420, 108, true);
+            _update = AddButton(Strings.T("update.now"), 392, 450, 108, true);
             _update.Enabled = false;
             _update.Click += delegate { Apply(); };
             SetUpdateEnabled(false);
