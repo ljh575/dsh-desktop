@@ -40,7 +40,7 @@ namespace DshDesktop
         private bool _finished;
         private bool _failureShown;
         private NotifyIcon _tray;
-        private RoundedMenu _trayMenu;
+        private ContextMenuStrip _trayMenu;
         private bool _exiting;
         private FormWindowState _stateBeforeHide = FormWindowState.Normal;
         private bool _trayHintShown;
@@ -907,8 +907,7 @@ namespace DshDesktop
             _tray.Text = "DSH Desktop";
             _tray.Visible = true;
 
-            RoundedMenu menu = new RoundedMenu(S(6));
-            menu.NoAutoClose = true;   // the notification icon's popup closes on deactivate
+            ContextMenuStrip menu = new ContextMenuStrip();
             Theme theme = _theme ?? Theme.FromPage(_dark, _chromeRight);
             // The renderer is OS-aware: rounded + system shadow on Windows 11, square
             // with a 1px gray frame on Windows 10. The background follows the theme.
@@ -956,7 +955,7 @@ namespace DshDesktop
 
         // Called just before the tray menu opens: the labels follow the launcher
         // language and the row colours follow the current theme.
-        private void SyncTrayMenu(RoundedMenu menu)
+        private void SyncTrayMenu(ContextMenuStrip menu)
         {
             Theme theme = _theme ?? Theme.FromPage(_dark, _chromeRight);
             MenuRenderer renderer = new MenuRenderer(theme, _scale);
