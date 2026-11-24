@@ -737,11 +737,11 @@ namespace DshDesktop
     // than once when it is created.
     internal sealed class RoundedMenu : ContextMenuStrip
     {
-        private NativeMethods.MouseHookProc _hook;
-        private IntPtr _hookHandle = IntPtr.Zero;
+        private readonly int _radius;
 
         public RoundedMenu(int radius)
         {
+            _radius = Math.Max(4, radius);
             DropShadowEnabled = false;
         }
 
@@ -749,45 +749,6 @@ namespace DshDesktop
         {
             base.OnOpened(e);
             ApplyShape();
-
-            // A menu is its own window, so a click on the page behind it never reaches
-            // the strip and it stayed open. The hook sees every button press and closes
-            // when the press lands on anything other than the menu itself. Comparing the
-            // window under the cursor is more reliable than a screen-bounds check, which
-            // could be off by the DPI scaling and dismiss the menu on its own items.
-            _hook = delegate(int code, IntPtr wParam, IntPtr lParam)
-            {
-                if (code >= 0)
-                {
-                    int message = wParam.ToInt32();
-                    if (message == 0x0201 || message == 0x0204)
-                    {
-                        NativeMethods.MOUSEHOOKSTRUCT point = (NativeMethods.MOUSEHOOKSTRUCT)
-                            System.Runtime.InteropServices.Marshal.PtrToStructure(
-                                lParam, typeof(NativeMethods.MOUSEHOOKSTRUCT));
-                        IntPtr under = NativeMethods.WindowFromPoint(point.pt);
-                        if (under != Handle && under != IntPtr.Zero && Visible)
-                        {
-                            try { BeginInvoke((MethodInvoker)delegate { Close(); }); }
-                            catch { }
-                        }
-                    }
-                }
-                return NativeMethods.CallNextHookEx(_hookHandle, code, wParam, lParam);
-            };
-            _hookHandle = NativeMethods.SetWindowsHookEx(
-                NativeMethods.WH_MOUSE_LL, _hook, NativeMethods.GetModuleHandle(null), 0);
-        }
-
-        protected override void OnClosed(ToolStripDropDownClosedEventArgs e)
-        {
-            if (_hookHandle != IntPtr.Zero)
-            {
-                NativeMethods.UnhookWindowsHookEx(_hookHandle);
-                _hookHandle = IntPtr.Zero;
-                _hook = null;
-            }
-            base.OnClosed(e);
         }
 
         protected override void OnResize(EventArgs e)
@@ -801,13 +762,16 @@ namespace DshDesktop
             if (Width <= 0 || Height <= 0) return;
             try
             {
-                // Windows 11 rounds the popup through DWM, which also draws the system's
-                // soft shadow; Windows 10 stays square with no shadow.
+                // Windows 11 rounds the popup with a region clip; Windows 10 stays square.
+                // The region has to be applied after the menu opens, because ToolStripDropDown
+                // resets its own region for the drop shadow. No DWM attributes here:
+                // DWMWA_WINDOW_CORNER_PREFERENCE / DWMWA_BORDER_COLOR on a ToolStripDropDown
+                // interfere with its own rendering and stop the items from receiving clicks.
                 Region = null;
                 if (NativeMethods.Windows11)
                 {
-                    NativeMethods.SuppressBorder(Handle);
-                    NativeMethods.RoundCorners(Handle);
+                    using (GraphicsPath path = Theme.RoundedExact(new Rectangle(0, 0, Width, Height), _radius))
+                        Region = new Region(path);
                 }
             }
             catch { }
