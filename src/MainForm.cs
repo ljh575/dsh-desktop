@@ -927,7 +927,10 @@ namespace DshDesktop
             _tray.Text = "DSH Desktop";
             _tray.Visible = true;
 
-            ContextMenuStrip menu = new ContextMenuStrip();
+            RoundedMenu menu = new RoundedMenu(S(6));
+            // The tray popup is over the desktop, so it closes on deactivate; the click-away
+            // timer that serves the "more" menu only disturbed its re-show, so skip it here.
+            menu.NoAutoClose = true;
             Theme theme = _theme ?? Theme.FromPage(_dark, _chromeRight);
             // The renderer is OS-aware: rounded + system shadow on Windows 11, square
             // with a 1px gray frame on Windows 10. The background follows the theme.

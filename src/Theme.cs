@@ -790,16 +790,15 @@ namespace DshDesktop
             if (Width <= 0 || Height <= 0) return;
             try
             {
-                // Windows 11 rounds the popup with a region clip; Windows 10 stays square.
-                // The region has to be applied after the menu opens, because ToolStripDropDown
-                // resets its own region for the drop shadow. No DWM attributes here:
-                // DWMWA_WINDOW_CORNER_PREFERENCE / DWMWA_BORDER_COLOR on a ToolStripDropDown
-                // interfere with its own rendering and stop the items from receiving clicks.
+                // Windows 11 hands the popup to DWM, which rounds and antialiases the
+                // corners and draws the system's soft shadow; Windows 10 stays square.
+                // The click-away hook that once dismissed the menu before an item click
+                // could land is gone (replaced by a timer), so DWM attributes are safe now.
                 Region = null;
                 if (NativeMethods.Windows11)
                 {
-                    using (GraphicsPath path = Theme.RoundedExact(new Rectangle(0, 0, Width, Height), _radius))
-                        Region = new Region(path);
+                    NativeMethods.SuppressBorder(Handle);
+                    NativeMethods.RoundCorners(Handle);
                 }
             }
             catch { }
