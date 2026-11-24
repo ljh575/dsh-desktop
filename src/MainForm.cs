@@ -934,14 +934,34 @@ namespace DshDesktop
             menu.Items.Add(Strings.T("tray.quit"), null, delegate { ExitFromTray(); });
             // The menu outlives language and theme changes, so its labels and colours
             // are refreshed right before it opens.
-            menu.Opening += delegate { SyncTrayMenu(menu); };
-            // With the window visible, the WebView2 re-takes focus the instant the popup
-            // appears, which would dismiss it via AppFocusChange. Cancel only that reason,
-            // so item clicks, outside clicks and Esc still close the menu normally.
+            menu.Opening += delegate
+            {
+                App.Log("tray menu Opening");
+                // The WebView2 re-takes focus the instant the popup appears, which
+                // dismisses it via AppFocusChange. Hide the WebView2 content while the
+                // menu is up so it cannot steal focus; restore it on close.
+                try
+                {
+                    if (_view != null && _view.CoreWebView2 != null)
+                        _view.CoreWebView2Controller.IsVisible = false;
+                }
+                catch { }
+                SyncTrayMenu(menu);
+            };
+            menu.Opened += delegate { App.Log("tray menu Opened, bounds=" + menu.Bounds); };
             menu.Closing += delegate(object s, ToolStripDropDownClosingEventArgs e)
             {
-                if (e.CloseReason == ToolStripDropDownCloseReason.AppFocusChange)
-                    e.Cancel = true;
+                App.Log("tray menu Closing, reason=" + e.CloseReason);
+            };
+            menu.Closed += delegate(object s, ToolStripDropDownClosedEventArgs e)
+            {
+                App.Log("tray menu Closed, reason=" + e.CloseReason);
+                try
+                {
+                    if (_view != null && _view.CoreWebView2 != null)
+                        _view.CoreWebView2Controller.IsVisible = true;
+                }
+                catch { }
             };
             _trayMenu = menu;
             if (_tray != null) _tray.ContextMenuStrip = menu;
