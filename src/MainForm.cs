@@ -902,6 +902,21 @@ namespace DshDesktop
         // The WebView2's Chromium window re-takes focus the instant the tray menu opens,
         // which dismisses the menu via AppFocusChange. Clear the WinForms active control
         // and also move the Chromium focus out (Next) so it cannot grab focus back.
+        // True while this window, or a window inside it (the WebView2 is one), owns the
+        // foreground: the way to tell the WebView2's self-inflicted focus bounce apart
+        // from the user really switching to another application.
+        private bool OwnForeground()
+        {
+            try
+            {
+                IntPtr foreground = NativeMethods.GetForegroundWindow();
+                if (foreground == IntPtr.Zero) return false;
+                if (foreground == Handle) return true;
+                return NativeMethods.GetAncestor(foreground, 2) == Handle;   // GA_ROOT
+            }
+            catch { return false; }
+        }
+
         private void MoveFocusOffWebView2()
         {
             try { ActiveControl = null; } catch { }
@@ -931,6 +946,23 @@ namespace DshDesktop
             // The tray popup is over the desktop, so it closes on deactivate; the click-away
             // timer that serves the "more" menu only disturbed its re-show, so skip it here.
             menu.NoAutoClose = true;
+            // Windows 10 only: NotifyIcon.ShowContextMenu() hands the foreground to the
+            // icon window before the popup shows (the shell hack from KB135788), and the
+            // WebView2 takes the foreground straight back, so the popup dies on
+            // AppFocusChange the instant it opens. Swallow exactly that bounce: only when
+            // the foreground still belongs to this window (the WebView2 is a child of it),
+            // never when the user really switched to another application. The polling
+            // timer takes over the click-away path that the swallowed close would have
+            // served. Windows 11 does not bounce like this, so it keeps the original path.
+            if (!NativeMethods.Windows11)
+            {
+                menu.NoAutoClose = false;
+                menu.Closing += delegate(object s, ToolStripDropDownClosingEventArgs e)
+                {
+                    if (e.CloseReason == ToolStripDropDownCloseReason.AppFocusChange && OwnForeground())
+                        e.Cancel = true;
+                };
+            }
             Theme theme = _theme ?? Theme.FromPage(_dark, _chromeRight);
             // The renderer is OS-aware: rounded + system shadow on Windows 11, square
             // with a 1px gray frame on Windows 10. The background follows the theme.
