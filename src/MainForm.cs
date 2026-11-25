@@ -235,12 +235,29 @@ namespace DshDesktop
             _title.Controls.Add(_btnMax);
             _title.Controls.Add(_btnClose);
 
-            // The whole strip is a drag handle, like a native caption.
+            // The whole strip is a drag handle, like a native caption. On Windows 11 the
+            // top edge has no non-client frame (WM_NCCALCSIZE pushed the client area to
+            // the very top), so the top resize zone lives here instead: the strip is an
+            // in-process control, so the hit test is ours to make. Everything else drags.
             MouseEventHandler drag = delegate(object sender, MouseEventArgs e)
             {
                 if (e.Button != MouseButtons.Left) return;
+                IntPtr edge = IntPtr.Zero;
+                if (NativeMethods.Windows11 && WindowState == FormWindowState.Normal)
+                {
+                    int zone = S(6);
+                    bool left = e.X <= zone, right = e.X >= _title.ClientSize.Width - zone;
+                    if (e.Y <= zone)
+                    {
+                        if (left) edge = (IntPtr)13;         // HTTOPLEFT
+                        else if (right) edge = (IntPtr)14;   // HTTOPRIGHT
+                        else edge = (IntPtr)12;              // HTTOP
+                    }
+                    else if (left && e.Y <= S(12)) edge = (IntPtr)13;   // top-left corner zone
+                    else if (right && e.Y <= S(12)) edge = (IntPtr)14;  // top-right corner zone
+                }
                 NativeMethods.ReleaseCapture();
-                NativeMethods.SendMessage(Handle, 0x00A1, (IntPtr)2, IntPtr.Zero);
+                NativeMethods.SendMessage(Handle, 0x00A1, edge != IntPtr.Zero ? edge : (IntPtr)2, IntPtr.Zero);
             };
             _title.MouseDown += drag;
             _titleText.MouseDown += drag;
@@ -1907,16 +1924,121 @@ namespace DshDesktop
             UpdateHotKey(false);
         }
 
+        // Windows 11: a thick frame supplies the native resize border along the left,
+        // right and bottom edges (WM_NCCALCSIZE above removes only the caption). The
+        // WebView2 fills the client area from another process, so the form must own a
+        // non-client band for the resize hit test to reach it - the same construction
+        // explorer and Windows Terminal use. Windows 10 keeps the plain WS_POPUP path:
+        // its 1px padding rail already works and must not change.
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                if (NativeMethods.Windows11)
+                {
+                    cp.Style |= 0x00040000; // WS_THICKFRAME
+                    cp.Style |= 0x00020000; // WS_MINIMIZEBOX
+                    cp.Style |= 0x00010000; // WS_MAXIMIZEBOX
+                }
+                return cp;
+            }
+        }
+
+        // Non-client metrics for WM_NCCALCSIZE. Only the fields the message actually
+        // touches are declared: rgrc[0] is the proposed client rect on the way in and
+        // the new client rect on the way out.
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct NcCalcSizeRect { public int Left, Top, Right, Bottom; }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct NcCalcSizeParams
+        {
+            public NcCalcSizeRect rgrc0;
+            public NcCalcSizeRect rgrc1;
+            public NcCalcSizeRect rgrc2;
+            public IntPtr lppos;
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct NativePoint { public int X; public int Y; }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct MinMaxInfo
+        {
+            public NativePoint ptReserved;
+            public NativePoint ptMaxSize;
+            public NativePoint ptMaxPosition;
+            public NativePoint ptMinTrackSize;
+            public NativePoint ptMaxTrackSize;
+        }
+
+        // A maximized thick-frame window is sized to the whole monitor with its frame
+        // hanging off-screen, which in a DPI-virtualized WinForms window grows past the
+        // screen by the frame amount. Pin the maximize geometry to the working area, the
+        // way a native window does.
+        private void ClampMaximizeToWorkArea(IntPtr lParam)
+        {
+            try
+            {
+                Screen screen = Screen.FromHandle(Handle);
+                Rectangle work = screen.WorkingArea;
+                Rectangle bounds = screen.Bounds;
+                MinMaxInfo info = (MinMaxInfo)System.Runtime.InteropServices.Marshal
+                    .PtrToStructure(lParam, typeof(MinMaxInfo));
+                info.ptMaxPosition.X = work.X - bounds.X;
+                info.ptMaxPosition.Y = work.Y - bounds.Y;
+                info.ptMaxSize.X = work.Width;
+                info.ptMaxSize.Y = work.Height;
+                System.Runtime.InteropServices.Marshal.StructureToPtr(info, lParam, false);
+            }
+            catch { }
+        }
+
         protected override void WndProc(ref Message m)
         {
             const int WM_NCHITTEST = 0x0084;
             const int WM_HOTKEY = 0x0312;
+            const int WM_NCCALCSIZE = 0x0083;
             const int HTCLIENT = 1, HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13,
                 HTTOPRIGHT = 14, HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
 
             if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == HotKeySettings)
             {
                 ShowSettings();
+                return;
+            }
+
+            const int WM_GETMINMAXINFO = 0x0024;
+            if (NativeMethods.Windows11 && m.Msg == WM_GETMINMAXINFO)
+            {
+                base.WndProc(ref m);
+                ClampMaximizeToWorkArea(m.LParam);
+                return;
+            }
+
+            // Windows 11, title-less thick frame: the system removes the caption but keeps
+            // the sizing border on the left, right and bottom edges, so the WebView2 (a
+            // child of another process that fills the client area) can never cover the
+            // pixels the resize hit test needs - the construction explorer and Windows
+            // Terminal use. WinForms' own borderless handling is skipped (it would cover
+            // the whole window again); DefWindowProc supplies the real thick-frame layout,
+            // then the top is pushed back to the window top so no caption band is left.
+            // The top resize zone lives in the title bar instead (BuildTitleBar). A
+            // maximized window keeps the system layout, or it would overlap the taskbar.
+            if (NativeMethods.Windows11 && m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
+            {
+                NcCalcSizeParams p = (NcCalcSizeParams)System.Runtime.InteropServices.Marshal
+                    .PtrToStructure(m.LParam, typeof(NcCalcSizeParams));
+                int windowTop = p.rgrc0.Top;    // on input rgrc0 is the new window rect
+                m.Result = NativeMethods.DefWindowProc(m.HWnd, m.Msg, m.WParam, m.LParam);
+                if (WindowState != FormWindowState.Maximized)
+                {
+                    p = (NcCalcSizeParams)System.Runtime.InteropServices.Marshal
+                        .PtrToStructure(m.LParam, typeof(NcCalcSizeParams));
+                    p.rgrc0.Top = windowTop;
+                    System.Runtime.InteropServices.Marshal.StructureToPtr(p, m.LParam, false);
+                }
                 return;
             }
 

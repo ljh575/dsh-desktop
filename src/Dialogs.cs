@@ -235,6 +235,9 @@ namespace DshDesktop
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         public static extern IntPtr GetForegroundWindow();
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern IntPtr DefWindowProc(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
         public const int WH_MOUSE_LL = 14;
 
         public delegate IntPtr MouseHookProc(int code, IntPtr wParam, IntPtr lParam);
