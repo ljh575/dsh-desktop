@@ -257,14 +257,12 @@ namespace DshDesktop
                     else if (right && e.Y <= S(12)) edge = (IntPtr)14;  // top-right corner zone
                 }
                 NativeMethods.ReleaseCapture();
-                // WM_NCLBUTTONDOWN is one of the messages whose DefWindowProc paints
-                // the default non-client frame over the custom frame (Chromium's
-                // ScopedRedrawLock exists for exactly this), so the caption drag and the
-                // top-edge resize go through the same lock on Windows 11.
-                if (NativeMethods.Windows11)
-                    DefWindowProcLocked(0x00A1, edge != IntPtr.Zero ? edge : (IntPtr)2, IntPtr.Zero);
-                else
-                    NativeMethods.SendMessage(Handle, 0x00A1, edge != IntPtr.Zero ? edge : (IntPtr)2, IntPtr.Zero);
+                // WM_NCLBUTTONDOWN enters a modal sizing loop inside DefWindowProc, so the
+                // Chromium redraw lock (dropping WS_VISIBLE for the duration of the call)
+                // must NOT wrap it: the whole drag would run on a window the system
+                // considers invisible, leaving the newly grown client area unpainted -
+                // the black band the user saw. Plain SendMessage only.
+                NativeMethods.SendMessage(Handle, 0x00A1, edge != IntPtr.Zero ? edge : (IntPtr)2, IntPtr.Zero);
             };
             _title.MouseDown += drag;
             _titleText.MouseDown += drag;
@@ -2093,10 +2091,18 @@ namespace DshDesktop
                     long raw = m.LParam.ToInt64();
                     int screenX = unchecked((short)(raw & 0xFFFF));
                     int screenY = unchecked((short)((raw >> 16) & 0xFFFF));
-                    Point p = PointToClient(new Point(screenX, screenY));
+                    // Compare against the window rect in the same coordinate space the
+                    // message delivered (both come through the same DPI context), rather
+                    // than PointToClient: on Windows 11 the client conversion of a
+                    // DPI-unaware process misplaces the point, so the top edge zone
+                    // missed and the click fell into the WebView2.
+                    NativeMethods.WindowRect wr;
+                    NativeMethods.GetWindowRect(Handle, out wr);
                     int b = Math.Max(4, S(6));
-                    bool left = p.X <= b, right = p.X >= ClientSize.Width - b;
-                    bool top = p.Y <= b, bottom = p.Y >= ClientSize.Height - b;
+                    bool left = screenX - wr.Left <= b;
+                    bool right = wr.Right - screenX <= b;
+                    bool top = screenY - wr.Top <= b;
+                    bool bottom = wr.Bottom - screenY <= b;
                     int hit = 0;
                     if (top && left) hit = HTTOPLEFT;
                     else if (top && right) hit = HTTOPRIGHT;
