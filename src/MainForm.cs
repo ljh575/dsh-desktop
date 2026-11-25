@@ -257,7 +257,14 @@ namespace DshDesktop
                     else if (right && e.Y <= S(12)) edge = (IntPtr)14;  // top-right corner zone
                 }
                 NativeMethods.ReleaseCapture();
-                NativeMethods.SendMessage(Handle, 0x00A1, edge != IntPtr.Zero ? edge : (IntPtr)2, IntPtr.Zero);
+                // WM_NCLBUTTONDOWN is one of the messages whose DefWindowProc paints
+                // the default non-client frame over the custom frame (Chromium's
+                // ScopedRedrawLock exists for exactly this), so the caption drag and the
+                // top-edge resize go through the same lock on Windows 11.
+                if (NativeMethods.Windows11)
+                    DefWindowProcLocked(0x00A1, edge != IntPtr.Zero ? edge : (IntPtr)2, IntPtr.Zero);
+                else
+                    NativeMethods.SendMessage(Handle, 0x00A1, edge != IntPtr.Zero ? edge : (IntPtr)2, IntPtr.Zero);
             };
             _title.MouseDown += drag;
             _titleText.MouseDown += drag;
@@ -932,6 +939,28 @@ namespace DshDesktop
                 return NativeMethods.GetAncestor(foreground, 2) == Handle;   // GA_ROOT
             }
             catch { return false; }
+        }
+
+        // Chromium's ScopedRedrawLock, verbatim: Windows sometimes paints the default
+        // non-client frame right over a custom frame from inside DefWindowProc's
+        // handling of WM_NCACTIVATE / WM_NCLBUTTONDOWN / WM_SETTEXT / WM_SETICON -
+        // handling WM_NCPAINT does not help because the painting is not done there.
+        // Temporarily dropping WS_VISIBLE stops the system from painting at all for
+        // the duration of the DefWindowProc call.
+        private void DefWindowProcLocked(int msg, IntPtr wParam, IntPtr lParam)
+        {
+            const int GWL_STYLE = -16;
+            const int WS_VISIBLE = 0x10000000;
+            int style = NativeMethods.GetWindowLong(Handle, GWL_STYLE);
+            NativeMethods.SetWindowLong(Handle, GWL_STYLE, style & ~WS_VISIBLE);
+            try
+            {
+                NativeMethods.DefWindowProc(Handle, msg, wParam, lParam);
+            }
+            finally
+            {
+                NativeMethods.SetWindowLong(Handle, GWL_STYLE, style | WS_VISIBLE);
+            }
         }
 
         private void MoveFocusOffWebView2()
@@ -2014,6 +2043,18 @@ namespace DshDesktop
             {
                 base.WndProc(ref m);
                 ClampMaximizeToWorkArea(m.LParam);
+                return;
+            }
+
+            // Windows paints the default non-client frame over the custom frame from
+            // inside DefWindowProc's WM_NCACTIVATE handling (Chromium documents this),
+            // which shows up as the grey band at the top. Route it through the redraw
+            // lock so the system never sees a visible window while it would paint.
+            const int WM_NCACTIVATE = 0x0086;
+            if (NativeMethods.Windows11 && m.Msg == WM_NCACTIVATE)
+            {
+                DefWindowProcLocked(m.Msg, m.WParam, m.LParam);
+                m.Result = (IntPtr)1;
                 return;
             }
 
