@@ -1088,21 +1088,42 @@ namespace DshDesktop
             // off screen (measured: 1132px away on Win10, 140-280px on Win11).
             // Showing it by hand lets us pick the exact pixel, and the AppFocusChange
             // guard below keeps it alive through the WebView2 focus bounce.
+            // Create the popup's native window while this thread is in a PER-MONITOR-V2
+            // context. A window's DPI awareness is fixed when its handle is created; if
+            // this popup is created as system-aware, Windows virtualises it, so it renders
+            // at the wrong size on a 125% monitor (measured: 155x173 instead of 124x138
+            // with the main window on that monitor) and SetWindowPos coordinates get
+            // transformed by its own context, which no amount of arithmetic corrects.
+            // Creating it PMv2-aware makes it scale itself and lets us place it in plain
+            // physical pixels.
+            IntPtr previousAwareness = NativeMethods.GetThreadDpiAwarenessContext();
+            try
+            {
+                NativeMethods.SetThreadDpiAwarenessContext(NativeMethods.DpiAwarenessPerMonitorV2);
+                IntPtr created = menu.Handle;
+                App.Log("tray menu handle created dpi=" + NativeMethods.GetDpiForWindow(created));
+            }
+            finally
+            {
+                NativeMethods.SetThreadDpiAwarenessContext(previousAwareness);
+            }
+
             menu.Opened += delegate
             {
+                // Everything below runs in a PER-MONITOR-V2 thread context, so every
+                // coordinate API speaks true physical pixels. That is what makes this
+                // deterministic: this process is system-DPI-aware, but the popup's own
+                // DPI context follows the MAIN WINDOW's monitor (measured: with the
+                // window on the 125% monitor the menu becomes 155x173 instead of
+                // 124x138), so mixing virtualised numbers with it misplaces the menu.
+                IntPtr previous = NativeMethods.GetThreadDpiAwarenessContext();
                 try
                 {
+                    NativeMethods.SetThreadDpiAwarenessContext(NativeMethods.DpiAwarenessPerMonitorV2);
                     NativeMethods.WindowRect mr;
                     if (!NativeMethods.GetWindowRect(menu.Handle, out mr)) return;
                     int w = mr.Right - mr.Left, h = mr.Bottom - mr.Top;
 
-                    // Anchor: the physical cursor position. GetCursorPos returns
-                    // VIRTUALISED coordinates (this process is system-DPI-aware), while a
-                    // popup window is positioned in REAL pixels - measured on a 125%
-                    // secondary monitor: a menu set to virtual 2900,869 appeared at
-                    // physical 2900,869, but the cursor at that spot was physically at
-                    // 3205,1122. So the cursor has to be converted to real pixels using
-                    // the monitor's true scale before the menu is placed.
                     NativeMethods.MonitorPoint cp;
                     if (!NativeMethods.GetCursorPos(out cp)) return;
 
@@ -1110,45 +1131,48 @@ namespace DshDesktop
                     mp.X = cp.X; mp.Y = cp.Y;
                     IntPtr mon = NativeMethods.MonitorFromPoint(mp, 1);
                     if (mon == IntPtr.Zero) return;
-
-                    float scale = RealMonitorScale(mon);
                     NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
                     mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
                     if (!NativeMethods.GetMonitorInfo(mon, ref mi)) return;
 
-                    // Convert the virtualised cursor into real pixels: scale the offset
-                    // from the monitor's own virtual origin (the origins coincide).
-                    int realX = mi.rcMonitor.Left + (int)Math.Round((cp.X - mi.rcMonitor.Left) * scale);
-                    int realY = mi.rcMonitor.Top + (int)Math.Round((cp.Y - mi.rcMonitor.Top) * scale);
-                    // Work area in real pixels, same conversion.
-                    int workLeft = mi.rcMonitor.Left + (int)Math.Round((mi.rcWork.Left - mi.rcMonitor.Left) * scale);
-                    int workTop = mi.rcMonitor.Top + (int)Math.Round((mi.rcWork.Top - mi.rcMonitor.Top) * scale);
-                    int workRight = mi.rcMonitor.Left + (int)Math.Round((mi.rcWork.Right - mi.rcMonitor.Left) * scale);
-                    int workBottom = mi.rcMonitor.Top + (int)Math.Round((mi.rcWork.Bottom - mi.rcMonitor.Top) * scale);
-                    // The popup measured its own size in the same real pixels it is placed
-                    // in (verified: GetWindowRect 124x138 matches the on-screen 124x138 on
-                    // the 125% monitor), so the clamp uses w/h unchanged.
-                    int x = Math.Max(workLeft, Math.Min(realX, workRight - w));
-                    int y = Math.Max(workTop, Math.Min(realY, workBottom - h));
-                    // Assign through WinForms first (keeps its internal state sane) but
-                    // then force the real pixel position with SetWindowPos: WinForms
-                    // clamps Location against its VIRTUALISED work area, which pulled a
-                    // target of 3205,1157 back to 3056-124=2932 on the 125% monitor
-                    // (measured). SetWindowPos talks to Win32 directly and is not clamped.
-                    menu.Location = new Point(x, y);
+                    // Clamp the physical cursor into the physical work area.
+                    int x = Math.Max(mi.rcWork.Left, Math.Min(cp.X, mi.rcWork.Right - w));
+                    int y = Math.Max(mi.rcWork.Top, Math.Min(cp.Y, mi.rcWork.Bottom - h));
                     NativeMethods.SetWindowPos(menu.Handle, IntPtr.Zero, x, y, 0, 0,
                         0x0001 | 0x0004 | 0x0010);   // NOSIZE | NOZORDER | NOACTIVATE
+
+                    // Closed loop: if the popup's own DPI context still pushed it
+                    // somewhere else, correct by the measured delta (at most twice).
+                    int corrections = 0;
+                    for (int attempt = 0; attempt < 2; attempt++)
+                    {
+                        NativeMethods.WindowRect now;
+                        if (!NativeMethods.GetWindowRect(menu.Handle, out now)) break;
+                        int dx = x - now.Left, dy = y - now.Top;
+                        if (Math.Abs(dx) <= 2 && Math.Abs(dy) <= 2) break;
+                        corrections++;
+                        NativeMethods.SetWindowPos(menu.Handle, IntPtr.Zero, now.Left + dx, now.Top + dy,
+                            0, 0, 0x0001 | 0x0004 | 0x0010);
+                    }
+
                     NativeMethods.WindowRect final;
                     NativeMethods.GetWindowRect(menu.Handle, out final);
-                    App.Log("tray menu: cursorV=" + cp.X + "," + cp.Y
-                        + " scale=" + scale.ToString("0.##")
-                        + " cursorReal=" + realX + "," + realY
-                        + " sizeV=" + w + "x" + h
+                    Point wp = Cursor.Position;
+                    App.Log("tray menu: cursor=" + cp.X + "," + cp.Y
+                        + " winformsCursor=" + wp.X + "," + wp.Y
+                        + " work=" + mi.rcWork.Left + "," + mi.rcWork.Top + ".." + mi.rcWork.Right + "," + mi.rcWork.Bottom
+                        + " size=" + w + "x" + h
                         + " target=" + x + "," + y
                         + " final=" + final.Left + "," + final.Top
-                        + " workV=" + mi.rcWork.Left + "," + mi.rcWork.Top + ".." + mi.rcWork.Right + "," + mi.rcWork.Bottom);
+                        + " corrections=" + corrections
+                        + " popupDpi=" + NativeMethods.GetDpiForWindow(menu.Handle)
+                        + " formDpi=" + NativeMethods.GetDpiForWindow(Handle));
                 }
                 catch (Exception ex) { App.Log("tray menu move failed: " + ex.Message); }
+                finally
+                {
+                    NativeMethods.SetThreadDpiAwarenessContext(previous);
+                }
             };
             if (_tray != null) _tray.ContextMenuStrip = menu;
             foreach (ToolStripItem entry in menu.Items)

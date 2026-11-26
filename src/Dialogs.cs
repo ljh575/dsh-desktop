@@ -330,6 +330,23 @@ namespace DshDesktop
         [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
         public static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DevMode devMode);
 
+        // Thread-scoped DPI awareness. Inside a PER_MONITOR_AWARE_V2 context every
+        // coordinate API (GetCursorPos, GetMonitorInfo, GetWindowRect, SetWindowPos)
+        // speaks true physical pixels, regardless of how this process or any window
+        // was created - which is what makes tray-menu placement deterministic when
+        // monitors mix 100% and 125%.
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern IntPtr GetThreadDpiAwarenessContext();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern uint GetDpiForWindow(IntPtr hwnd);
+
+        // Predefined DPI_AWARENESS_CONTEXT handles (negative pseudo-handles).
+        public static readonly IntPtr DpiAwarenessPerMonitorV2 = new IntPtr(-4);
+
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
         public struct MonitorInfo
         {
