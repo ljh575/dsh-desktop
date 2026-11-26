@@ -40,7 +40,6 @@ namespace DshDesktop
         private bool _finished;
         private bool _failureShown;
         private NotifyIcon _tray;
-        private ContextMenuStrip _trayMenu;
         private bool _exiting;
         private FormWindowState _stateBeforeHide = FormWindowState.Normal;
         private bool _trayHintShown;
@@ -1021,251 +1020,122 @@ namespace DshDesktop
             _tray.Text = "DSH Desktop";
             _tray.Visible = true;
 
-            RoundedMenu menu = new RoundedMenu(S(6));
-            // The tray popup is over the desktop, so it closes on deactivate; the click-away
-            // timer that serves the "more" menu only disturbed its re-show, so skip it here.
-            menu.NoAutoClose = true;
-            // Windows 10 only: NotifyIcon.ShowContextMenu() hands the foreground to the
-            // icon window before the popup shows (the shell hack from KB135788), and the
-            // WebView2 takes the foreground straight back, so the popup dies on
-            // AppFocusChange the instant it opens. Swallow exactly that bounce: only when
-            // the foreground still belongs to this window (the WebView2 is a child of it),
-            // never when the user really switched to another application. The polling
-            // timer takes over the click-away path that the swallowed close would have
-            // served. Windows 11 does not bounce like this, so it keeps the original path.
-            if (!NativeMethods.Windows11)
+            // Context menu: none. The popup is a real Win32 menu shown on demand
+            // (ShowTrayMenu), so the OS owns its placement, DPI scaling, edge flipping
+            // and input. The managed ContextMenuStrip was where the multi-monitor
+            // defects kept coming from: its size and coordinate space followed the
+            // monitor the main window was on rather than the one the menu opened on.
+            _tray.MouseUp += delegate(object sender, MouseEventArgs e)
             {
-                menu.NoAutoClose = false;
-                menu.Closing += delegate(object s, ToolStripDropDownClosingEventArgs e)
-                {
-                    if (e.CloseReason == ToolStripDropDownCloseReason.AppFocusChange && OwnForeground())
-                        e.Cancel = true;
-                };
-            }
-            Theme theme = _theme ?? Theme.FromPage(_dark, _chromeRight);
-            // The renderer is OS-aware: rounded + system shadow on Windows 11, square
-            // with a 1px gray frame on Windows 10. The background follows the theme.
-            MenuRenderer renderer = new MenuRenderer(theme, _scale);
-            renderer.Border = true;
-            menu.Renderer = renderer;
-            menu.BackColor = theme.Dark ? theme.MenuSurface : Color.White;
-            menu.ShowImageMargin = false;
-            menu.ShowCheckMargin = false;
-            if (NativeMethods.Windows11)
-            {
-                menu.Font = new Font("Microsoft YaHei UI", 9f);
-                menu.Padding = new Padding(S(7));
-            }
-            menu.Items.Add(Strings.T("tray.show"), null, delegate { RestoreFromTray(); });
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(Strings.T("menu.settings"), null, delegate { ShowSettings(); });
-            menu.Items.Add(Strings.T("menu.about"), null, delegate
-            {
-                // The dialog is owned by the window, so bring it back first.
-                RestoreFromTray();
-                ShowAbout();
-            });
-            menu.Items.Add(Strings.T("tray.quit"), null, delegate { ExitFromTray(); });
-            // The menu outlives language and theme changes, so its labels and colours
-            // are refreshed right before it opens.
-            menu.Opening += delegate
-            {
-                MoveFocusOffWebView2();
-                SyncTrayMenu(menu);
-            };
-            menu.Closing += delegate(object s, ToolStripDropDownClosingEventArgs e)
-            {
-                // The page's Chromium window bounces activation back as the popup shows;
-                // swallow that close only while this window owns the foreground, so
-                // switching to another app still dismisses the menu.
-                if (e.CloseReason == ToolStripDropDownCloseReason.AppFocusChange && OwnForeground())
-                    e.Cancel = true;
-            };
-            _trayMenu = menu;
-            // Show the popup ourselves at the clamped physical cursor position.
-            // NotifyIcon's own path runs WinForms' task-bar fitting, which on
-            // multi-monitor DPI setups lands the menu on the wrong monitor or fully
-            // off screen (measured: 1132px away on Win10, 140-280px on Win11).
-            // The popup is created with the process's normal DPI awareness (forced
-            // per-monitor creation desynced WinForms' hit testing, so item clicks
-            // stopped registering in a 150%/125% mixed setup); its position is instead
-            // converted with PhysicalToLogicalPointForPerMonitorDPI below.
-            menu.Opened += delegate
-            {
-                IntPtr previous = NativeMethods.GetThreadDpiAwarenessContext();
-                try
-                {
-                    // Work out the target in true physical pixels.
-                    NativeMethods.SetThreadDpiAwarenessContext(NativeMethods.DpiAwarenessPerMonitorV2);
-                    NativeMethods.WindowRect mr;
-                    if (!NativeMethods.GetWindowRect(menu.Handle, out mr)) return;
-                    int w = mr.Right - mr.Left, h = mr.Bottom - mr.Top;
-
-                    NativeMethods.MonitorPoint cp;
-                    if (!NativeMethods.GetCursorPos(out cp)) return;
-
-                    NativeMethods.MonitorPoint mp = new NativeMethods.MonitorPoint();
-                    mp.X = cp.X; mp.Y = cp.Y;
-                    IntPtr mon = NativeMethods.MonitorFromPoint(mp, 1);
-                    if (mon == IntPtr.Zero) return;
-                    NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
-                    mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
-                    if (!NativeMethods.GetMonitorInfo(mon, ref mi)) return;
-
-                    int physicalX = Math.Max(mi.rcWork.Left, Math.Min(cp.X, mi.rcWork.Right - w));
-                    int physicalY = Math.Max(mi.rcWork.Top, Math.Min(cp.Y, mi.rcWork.Bottom - h));
-
-                    // The popup's SetWindowPos coordinates are transformed by Windows by
-                    // the ratio of the DPI of the monitor the popup currently sits on to
-                    // the system DPI (measured on a 150%/125% setup: 815,830 physical was
-                    // requested and 679,692 landed - exactly 120/144 = 0.833). That ratio
-                    // follows whichever monitor the popup is on, so it is measured, not
-                    // derived: place at two known coordinates, read where each really
-                    // landed in physical pixels, and solve physical = logical * k + b.
-                    NativeMethods.WindowRect probe0, probe1;
-                    NativeMethods.SetWindowPos(menu.Handle, IntPtr.Zero, 0, 0, 0, 0,
-                        0x0001 | 0x0004 | 0x0010);
-                    NativeMethods.GetWindowRect(menu.Handle, out probe0);
-                    NativeMethods.SetWindowPos(menu.Handle, IntPtr.Zero, 1000, 1000, 0, 0,
-                        0x0001 | 0x0004 | 0x0010);
-                    NativeMethods.GetWindowRect(menu.Handle, out probe1);
-                    float kx = 1f, ky = 1f;
-                    int bx = probe0.Left, by = probe0.Top;
-                    if (probe1.Left - probe0.Left > 10) kx = (probe1.Left - probe0.Left) / 1000f;
-                    if (probe1.Top - probe0.Top > 10) ky = (probe1.Top - probe0.Top) / 1000f;
-                    if (kx <= 0.1f || kx > 4f) { kx = 1f; bx = 0; }
-                    if (ky <= 0.1f || ky > 4f) { ky = 1f; by = 0; }
-                    NativeMethods.SetThreadDpiAwarenessContext(previous);
-
-                    int logicalX = (int)Math.Round((physicalX - bx) / kx);
-                    int logicalY = (int)Math.Round((physicalY - by) / ky);
-                    NativeMethods.SetWindowPos(menu.Handle, IntPtr.Zero, logicalX, logicalY, 0, 0,
-                        0x0001 | 0x0004 | 0x0010);   // NOSIZE | NOZORDER | NOACTIVATE
-
-                    // Measure the result in physical pixels for the log.
-                    NativeMethods.SetThreadDpiAwarenessContext(NativeMethods.DpiAwarenessPerMonitorV2);
-                    NativeMethods.WindowRect final;
-                    NativeMethods.GetWindowRect(menu.Handle, out final);
-                    NativeMethods.SetThreadDpiAwarenessContext(previous);
-                    App.Log("tray menu: cursor=" + cp.X + "," + cp.Y
-                        + " work=" + mi.rcWork.Left + "," + mi.rcWork.Top + ".." + mi.rcWork.Right + "," + mi.rcWork.Bottom
-                        + " size=" + w + "x" + h
-                        + " targetPhysical=" + physicalX + "," + physicalY
-                        + " map k=" + kx.ToString("0.####") + "," + ky.ToString("0.####")
-                        + " b=" + bx + "," + by
-                        + " sentLogical=" + logicalX + "," + logicalY
-                        + " finalPhysical=" + final.Left + "," + final.Top
-                        + " popupDpi=" + NativeMethods.GetDpiForWindow(menu.Handle));
-                }
-                catch (Exception ex) { App.Log("tray menu move failed: " + ex.Message); }
-                finally
-                {
-                    NativeMethods.SetThreadDpiAwarenessContext(previous);
-                }
-            };
-            if (_tray != null) _tray.ContextMenuStrip = menu;
-            foreach (ToolStripItem entry in menu.Items)
-            {
-                entry.ForeColor = theme.Text;
-                int textH = TextRenderer.MeasureText("Ag", entry.Font ?? SystemFonts.MenuFont).Height;
-                int padY = Math.Max(S(4), (Theme.MenuRowHeight(_scale) - textH) / 2);
-                entry.Padding = new Padding(0, padY, 0, padY);
-            }
-            // Let the strip hug its own content: a forced width is what made the tray
-            // menu far wider than its labels.
-            menu.AutoSize = true;
-            menu.MinimumSize = new Size(S(120), 0);
-            _tray.DoubleClick += delegate { RestoreFromTray(); };
+                if (e.Button == MouseButtons.Right) ShowTrayMenu();
+            };            _tray.DoubleClick += delegate { RestoreFromTray(); };
             App.Log("tray icon created");
         }
 
-        // The notification icon's screen rectangle, straight from the shell.
-        // NotifyIcon keeps its window handle and id private, so they are read by
-        // reflection; if anything is unavailable the caller falls back to the cursor.
-        private bool TryGetTrayIconRect(out NativeMethods.WindowRect rect)
+        private const int TrayCmdShow = 1;
+        private const int TrayCmdSettings = 2;
+        private const int TrayCmdAbout = 3;
+        private const int TrayCmdQuit = 4;
+
+        private const string MenuOwnerClass = "DshTrayMenuOwner";
+        private IntPtr _menuOwner;
+        // Kept in a field: the class stores the raw function pointer, so letting the
+        // delegate be collected would leave the window procedure dangling.
+        private static readonly NativeMethods.WndProcCallback MenuOwnerProc =
+            delegate(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam)
+            {
+                return NativeMethods.DefWindowProc(hwnd, msg, wParam, lParam);
+            };
+
+        // Owner window for the tray menu. It must be created while this thread is in a
+        // PER-MONITOR-V2 context: a window's DPI awareness is fixed when it is created,
+        // and a native popup menu inherits its owner's awareness. Using the main form as
+        // the owner made the menu follow the MAIN window's monitor rather than the menu's
+        // own, which scaled both the menu and its coordinates (measured at 150%/125% with
+        // the window on the 125% monitor: menu came out at 686,603 and 0.83x the correct
+        // size instead of anchored at the cursor).
+        private void EnsureMenuOwner()
         {
-            rect = new NativeMethods.WindowRect();
+            if (_menuOwner != IntPtr.Zero) return;
+            IntPtr previous = NativeMethods.GetThreadDpiAwarenessContext();
             try
             {
-                if (_tray == null) return false;
-                Type type = typeof(NotifyIcon);
-                System.Reflection.FieldInfo windowField = type.GetField("_window",
-                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-                System.Reflection.FieldInfo idField = type.GetField("_id",
-                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-                if (windowField == null || idField == null) return false;
-                object window = windowField.GetValue(_tray);
-                if (window == null) return false;
-                System.Reflection.PropertyInfo handleProperty = window.GetType().GetProperty("Handle",
-                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public
-                    | System.Reflection.BindingFlags.NonPublic);
-                if (handleProperty == null) return false;
-                IntPtr handle = (IntPtr)handleProperty.GetValue(window, null);
-                if (handle == IntPtr.Zero) return false;
-                uint id = Convert.ToUInt32(idField.GetValue(_tray));
-                NativeMethods.NotifyIconIdentifier nid = new NativeMethods.NotifyIconIdentifier();
-                nid.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.NotifyIconIdentifier));
-                nid.hWnd = handle;
-                nid.uID = id;
-                nid.guidItem = Guid.Empty;
-                return NativeMethods.Shell_NotifyIconGetRect(ref nid, out rect) == 0;
+                NativeMethods.SetThreadDpiAwarenessContext(NativeMethods.DpiAwarenessPerMonitorV2);
+                if (!_menuOwnerClassRegistered)
+                {
+                    NativeMethods.WindowClassEx wc = new NativeMethods.WindowClassEx();
+                    wc.cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.WindowClassEx));
+                    wc.lpfnWndProc = System.Runtime.InteropServices.Marshal.GetFunctionPointerForDelegate(MenuOwnerProc);
+                    wc.lpszClassName = MenuOwnerClass;
+                    NativeMethods.RegisterClassEx(ref wc);
+                    _menuOwnerClassRegistered = true;
+                }
+                _menuOwner = NativeMethods.CreateWindowEx(0, MenuOwnerClass, "", 0, -4000, -4000, 8, 8,
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                App.Log("tray menu owner=" + _menuOwner);
             }
-            catch { return false; }
+            catch (Exception ex) { App.Log("tray menu owner failed: " + ex.Message); }
+            finally { NativeMethods.SetThreadDpiAwarenessContext(previous); }
         }
 
-        // The TRUE scale factor of a monitor (1.0 = 100%, 1.25 = 125%).
-        // Windows virtualises this process, so GetMonitorInfo and GetDpiForMonitor
-        // both report the system DPI (96) everywhere - measured: a 1720x1440 monitor
-        // at 125% is reported as 1376x1152 with dpi=96. EnumDisplaySettings is not
-        // virtualised, so real pixels / virtual width recovers the real scale.
-        private static float RealMonitorScale(IntPtr monitor)
+        private static bool _menuOwnerClassRegistered;
+
+        // Show the tray menu as a real Win32 popup. Everything hard about a tray menu -
+        // which monitor, which DPI, flipping away from the screen edge, dismissing on a
+        // click elsewhere, routing the click - is handled by the menu manager, so this is
+        // the whole implementation. Verified on Windows 10 at 150%/125% and on Windows 11
+        // at 200%, with the main window on either monitor: the menu anchors to the cursor
+        // to the pixel and renders at its monitor's DPI, rounded by DWM on Windows 11.
+        private void ShowTrayMenu()
         {
+            EnsureMenuOwner();
+            if (_menuOwner == IntPtr.Zero) return;
+            IntPtr menu = NativeMethods.CreatePopupMenu();
+            if (menu == IntPtr.Zero) return;
+            IntPtr previous = NativeMethods.GetThreadDpiAwarenessContext();
             try
             {
-                NativeMethods.MonitorInfoEx mi = new NativeMethods.MonitorInfoEx();
-                mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfoEx));
-                if (!NativeMethods.GetMonitorInfoEx(monitor, ref mi)) return 1f;
-                int virtualWidth = mi.rcMonitor.Right - mi.rcMonitor.Left;
-                if (virtualWidth <= 0 || string.IsNullOrEmpty(mi.szDevice)) return 1f;
-                NativeMethods.DevMode dm = new NativeMethods.DevMode();
-                dm.dmSize = (short)System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.DevMode));
-                if (!NativeMethods.EnumDisplaySettings(mi.szDevice, -1, ref dm)) return 1f;
-                if (dm.dmPelsWidth <= 0) return 1f;
-                float scale = (float)dm.dmPelsWidth / virtualWidth;
-                // Guard against nonsense from a driver reporting odd values.
-                if (scale < 0.5f || scale > 4f) return 1f;
-                return scale;
-            }
-            catch { return 1f; }
-        }
+                const uint MF_STRING = 0x0000;
+                const uint MF_SEPARATOR = 0x0800;
+                NativeMethods.AppendMenu(menu, MF_STRING, (IntPtr)TrayCmdShow, Strings.T("tray.show"));
+                NativeMethods.AppendMenu(menu, MF_SEPARATOR, IntPtr.Zero, null);
+                NativeMethods.AppendMenu(menu, MF_STRING, (IntPtr)TrayCmdSettings, Strings.T("menu.settings"));
+                NativeMethods.AppendMenu(menu, MF_STRING, (IntPtr)TrayCmdAbout, Strings.T("menu.about"));
+                NativeMethods.AppendMenu(menu, MF_STRING, (IntPtr)TrayCmdQuit, Strings.T("tray.quit"));
 
-        // Called just before the tray menu opens: the labels follow the launcher
-        // language and the row colours follow the current theme.
-        private void SyncTrayMenu(ContextMenuStrip menu)
-        {
-            Theme theme = _theme ?? Theme.FromPage(_dark, _chromeRight);
-            MenuRenderer renderer = new MenuRenderer(theme, _scale);
-            renderer.Border = true;
-            menu.Renderer = renderer;
-            menu.BackColor = theme.Dark ? theme.MenuSurface : Color.White;
-            if (menu.Items.Count >= 5)
-            {
-                menu.Items[0].Text = Strings.T("tray.show");
-                menu.Items[2].Text = Strings.T("menu.settings");
-                menu.Items[3].Text = Strings.T("menu.about");
-                menu.Items[4].Text = Strings.T("tray.quit");
+                // Same context the owner was created in, so the point is physical pixels.
+                NativeMethods.SetThreadDpiAwarenessContext(NativeMethods.DpiAwarenessPerMonitorV2);
+                NativeMethods.MonitorPoint cp;
+                if (!NativeMethods.GetCursorPos(out cp)) return;
+                // A tray popup only dismisses on an outside click when its owner holds the
+                // foreground; the page's Chromium window would otherwise take it back.
+                MoveFocusOffWebView2();
+                NativeMethods.SetForegroundWindow(_menuOwner);
+                const uint TPM_RETURNCMD = 0x0100;
+                const uint TPM_RIGHTBUTTON = 0x0002;
+                int command = NativeMethods.TrackPopupMenuEx(menu,
+                    TPM_RETURNCMD | TPM_RIGHTBUTTON, cp.X, cp.Y, _menuOwner, IntPtr.Zero);
+                // Release the foreground the menu took (the documented tray-menu pairing).
+                NativeMethods.PostMessage(_menuOwner, 0x0000 /* WM_NULL */, IntPtr.Zero, IntPtr.Zero);
+                App.Log("tray menu: cursor=" + cp.X + "," + cp.Y + " command=" + command);
+                switch (command)
+                {
+                    case TrayCmdShow: RestoreFromTray(); break;
+                    case TrayCmdSettings: ShowSettings(); break;
+                    case TrayCmdAbout:
+                        // The dialog is owned by the window, so bring it back first.
+                        RestoreFromTray();
+                        ShowAbout();
+                        break;
+                    case TrayCmdQuit: ExitFromTray(); break;
+                }
             }
-            foreach (ToolStripItem entry in menu.Items)
+            catch (Exception ex) { App.Log("tray menu failed: " + ex.Message); }
+            finally
             {
-                entry.ForeColor = theme.Text;
-                int textH = TextRenderer.MeasureText("Ag", entry.Font ?? SystemFonts.MenuFont).Height;
-                int padY = Math.Max(S(4), (Theme.MenuRowHeight(_scale) - textH) / 2);
-                entry.Padding = new Padding(0, padY, 0, padY);
+                NativeMethods.SetThreadDpiAwarenessContext(previous);
+                NativeMethods.DestroyMenu(menu);
             }
-            // Let the strip hug its own content: a forced width is what made the tray
-            // menu far wider than its labels.
-            menu.AutoSize = true;
-            menu.MinimumSize = new Size(S(120), 0);
         }
 
         private void HideToTray()

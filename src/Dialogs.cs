@@ -358,6 +358,65 @@ namespace DshDesktop
         public static extern bool LogicalToPhysicalPointForPerMonitorDPI(IntPtr hwnd,
             ref MonitorPoint point);
 
+        // --- Native popup menus -------------------------------------------------
+        // The tray menu is a real Win32 menu: the OS owns its placement, per-monitor
+        // DPI scaling, screen-edge flipping, click-away dismissal and input routing.
+        // That removes the whole class of multi-monitor DPI defects the managed
+        // ContextMenuStrip popup kept producing (measured: with mixed 150%/125% both
+        // the menu's size and its coordinate space followed the monitor the main
+        // window was on, not the one the menu was shown on).
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern IntPtr CreatePopupMenu();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode,
+            EntryPoint = "AppendMenuW")]
+        public static extern bool AppendMenu(IntPtr menu, uint flags, IntPtr id, string text);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern bool DestroyMenu(IntPtr menu);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern int TrackPopupMenuEx(IntPtr menu, uint flags, int x, int y,
+            IntPtr hwnd, IntPtr tpmParams);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern bool SetForegroundWindow(IntPtr hwnd);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        // Owner window for the tray menu: a bare hidden window is enough, so no message
+        // handling is needed beyond the default procedure.
+        public delegate IntPtr WndProcCallback(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential,
+            CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        public struct WindowClassEx
+        {
+            public uint cbSize;
+            public uint style;
+            public IntPtr lpfnWndProc;
+            public int cbClsExtra;
+            public int cbWndExtra;
+            public IntPtr hInstance;
+            public IntPtr hIcon;
+            public IntPtr hCursor;
+            public IntPtr hbrBackground;
+            public string lpszMenuName;
+            public string lpszClassName;
+            public IntPtr hIconSm;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode,
+            EntryPoint = "RegisterClassExW")]
+        public static extern ushort RegisterClassEx(ref WindowClassEx windowClass);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode,
+            EntryPoint = "CreateWindowExW")]
+        public static extern IntPtr CreateWindowEx(uint exStyle, string className, string windowName,
+            uint style, int x, int y, int width, int height,
+            IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
+
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
         public struct MonitorInfo
         {
