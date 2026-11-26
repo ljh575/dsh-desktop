@@ -1086,39 +1086,16 @@ namespace DshDesktop
             // NotifyIcon's own path runs WinForms' task-bar fitting, which on
             // multi-monitor DPI setups lands the menu on the wrong monitor or fully
             // off screen (measured: 1132px away on Win10, 140-280px on Win11).
-            // Showing it by hand lets us pick the exact pixel, and the AppFocusChange
-            // guard below keeps it alive through the WebView2 focus bounce.
-            // Create the popup's native window while this thread is in a PER-MONITOR-V2
-            // context. A window's DPI awareness is fixed when its handle is created; if
-            // this popup is created as system-aware, Windows virtualises it, so it renders
-            // at the wrong size on a 125% monitor (measured: 155x173 instead of 124x138
-            // with the main window on that monitor) and SetWindowPos coordinates get
-            // transformed by its own context, which no amount of arithmetic corrects.
-            // Creating it PMv2-aware makes it scale itself and lets us place it in plain
-            // physical pixels.
-            IntPtr previousAwareness = NativeMethods.GetThreadDpiAwarenessContext();
-            try
-            {
-                NativeMethods.SetThreadDpiAwarenessContext(NativeMethods.DpiAwarenessPerMonitorV2);
-                IntPtr created = menu.Handle;
-                App.Log("tray menu handle created dpi=" + NativeMethods.GetDpiForWindow(created));
-            }
-            finally
-            {
-                NativeMethods.SetThreadDpiAwarenessContext(previousAwareness);
-            }
-
+            // The popup is created with the process's normal DPI awareness (forced
+            // per-monitor creation desynced WinForms' hit testing, so item clicks
+            // stopped registering in a 150%/125% mixed setup); its position is instead
+            // converted with PhysicalToLogicalPointForPerMonitorDPI below.
             menu.Opened += delegate
             {
-                // Everything below runs in a PER-MONITOR-V2 thread context, so every
-                // coordinate API speaks true physical pixels. That is what makes this
-                // deterministic: this process is system-DPI-aware, but the popup's own
-                // DPI context follows the MAIN WINDOW's monitor (measured: with the
-                // window on the 125% monitor the menu becomes 155x173 instead of
-                // 124x138), so mixing virtualised numbers with it misplaces the menu.
                 IntPtr previous = NativeMethods.GetThreadDpiAwarenessContext();
                 try
                 {
+                    // Work out the target in true physical pixels.
                     NativeMethods.SetThreadDpiAwarenessContext(NativeMethods.DpiAwarenessPerMonitorV2);
                     NativeMethods.WindowRect mr;
                     if (!NativeMethods.GetWindowRect(menu.Handle, out mr)) return;
@@ -1135,38 +1112,50 @@ namespace DshDesktop
                     mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
                     if (!NativeMethods.GetMonitorInfo(mon, ref mi)) return;
 
-                    // Clamp the physical cursor into the physical work area.
-                    int x = Math.Max(mi.rcWork.Left, Math.Min(cp.X, mi.rcWork.Right - w));
-                    int y = Math.Max(mi.rcWork.Top, Math.Min(cp.Y, mi.rcWork.Bottom - h));
-                    NativeMethods.SetWindowPos(menu.Handle, IntPtr.Zero, x, y, 0, 0,
+                    int physicalX = Math.Max(mi.rcWork.Left, Math.Min(cp.X, mi.rcWork.Right - w));
+                    int physicalY = Math.Max(mi.rcWork.Top, Math.Min(cp.Y, mi.rcWork.Bottom - h));
+
+                    // The popup's SetWindowPos coordinates are transformed by Windows by
+                    // the ratio of the DPI of the monitor the popup currently sits on to
+                    // the system DPI (measured on a 150%/125% setup: 815,830 physical was
+                    // requested and 679,692 landed - exactly 120/144 = 0.833). That ratio
+                    // follows whichever monitor the popup is on, so it is measured, not
+                    // derived: place at two known coordinates, read where each really
+                    // landed in physical pixels, and solve physical = logical * k + b.
+                    NativeMethods.WindowRect probe0, probe1;
+                    NativeMethods.SetWindowPos(menu.Handle, IntPtr.Zero, 0, 0, 0, 0,
+                        0x0001 | 0x0004 | 0x0010);
+                    NativeMethods.GetWindowRect(menu.Handle, out probe0);
+                    NativeMethods.SetWindowPos(menu.Handle, IntPtr.Zero, 1000, 1000, 0, 0,
+                        0x0001 | 0x0004 | 0x0010);
+                    NativeMethods.GetWindowRect(menu.Handle, out probe1);
+                    float kx = 1f, ky = 1f;
+                    int bx = probe0.Left, by = probe0.Top;
+                    if (probe1.Left - probe0.Left > 10) kx = (probe1.Left - probe0.Left) / 1000f;
+                    if (probe1.Top - probe0.Top > 10) ky = (probe1.Top - probe0.Top) / 1000f;
+                    if (kx <= 0.1f || kx > 4f) { kx = 1f; bx = 0; }
+                    if (ky <= 0.1f || ky > 4f) { ky = 1f; by = 0; }
+                    NativeMethods.SetThreadDpiAwarenessContext(previous);
+
+                    int logicalX = (int)Math.Round((physicalX - bx) / kx);
+                    int logicalY = (int)Math.Round((physicalY - by) / ky);
+                    NativeMethods.SetWindowPos(menu.Handle, IntPtr.Zero, logicalX, logicalY, 0, 0,
                         0x0001 | 0x0004 | 0x0010);   // NOSIZE | NOZORDER | NOACTIVATE
 
-                    // Closed loop: if the popup's own DPI context still pushed it
-                    // somewhere else, correct by the measured delta (at most twice).
-                    int corrections = 0;
-                    for (int attempt = 0; attempt < 2; attempt++)
-                    {
-                        NativeMethods.WindowRect now;
-                        if (!NativeMethods.GetWindowRect(menu.Handle, out now)) break;
-                        int dx = x - now.Left, dy = y - now.Top;
-                        if (Math.Abs(dx) <= 2 && Math.Abs(dy) <= 2) break;
-                        corrections++;
-                        NativeMethods.SetWindowPos(menu.Handle, IntPtr.Zero, now.Left + dx, now.Top + dy,
-                            0, 0, 0x0001 | 0x0004 | 0x0010);
-                    }
-
+                    // Measure the result in physical pixels for the log.
+                    NativeMethods.SetThreadDpiAwarenessContext(NativeMethods.DpiAwarenessPerMonitorV2);
                     NativeMethods.WindowRect final;
                     NativeMethods.GetWindowRect(menu.Handle, out final);
-                    Point wp = Cursor.Position;
+                    NativeMethods.SetThreadDpiAwarenessContext(previous);
                     App.Log("tray menu: cursor=" + cp.X + "," + cp.Y
-                        + " winformsCursor=" + wp.X + "," + wp.Y
                         + " work=" + mi.rcWork.Left + "," + mi.rcWork.Top + ".." + mi.rcWork.Right + "," + mi.rcWork.Bottom
                         + " size=" + w + "x" + h
-                        + " target=" + x + "," + y
-                        + " final=" + final.Left + "," + final.Top
-                        + " corrections=" + corrections
-                        + " popupDpi=" + NativeMethods.GetDpiForWindow(menu.Handle)
-                        + " formDpi=" + NativeMethods.GetDpiForWindow(Handle));
+                        + " targetPhysical=" + physicalX + "," + physicalY
+                        + " map k=" + kx.ToString("0.####") + "," + ky.ToString("0.####")
+                        + " b=" + bx + "," + by
+                        + " sentLogical=" + logicalX + "," + logicalY
+                        + " finalPhysical=" + final.Left + "," + final.Top
+                        + " popupDpi=" + NativeMethods.GetDpiForWindow(menu.Handle));
                 }
                 catch (Exception ex) { App.Log("tray menu move failed: " + ex.Message); }
                 finally

@@ -347,6 +347,17 @@ namespace DshDesktop
         // Predefined DPI_AWARENESS_CONTEXT handles (negative pseudo-handles).
         public static readonly IntPtr DpiAwarenessPerMonitorV2 = new IntPtr(-4);
 
+        // Converts a PHYSICAL screen point into the logical coordinates understood by
+        // one window's DPI context. This is the documented way to move a window to a
+        // known physical location when the window and the caller disagree about DPI.
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern bool PhysicalToLogicalPointForPerMonitorDPI(IntPtr hwnd,
+            ref MonitorPoint point);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern bool LogicalToPhysicalPointForPerMonitorDPI(IntPtr hwnd,
+            ref MonitorPoint point);
+
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
         public struct MonitorInfo
         {
