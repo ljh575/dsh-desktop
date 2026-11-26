@@ -1113,27 +1113,19 @@ namespace DshDesktop
                         int w = mr.Right - mr.Left, h = mr.Bottom - mr.Top;
                         int x = Math.Max(mi.rcWork.Left, Math.Min(cp.X, mi.rcWork.Right - w));
                         int y = Math.Max(mi.rcWork.Top, Math.Min(cp.Y, mi.rcWork.Bottom - h));
-                        // Two-step move:
-                        // 1. SetWindowPos in the physical domain (the same domain as
-                        //    GetCursorPos/GetMonitorInfo - this places the window at the
-                        //    exact physical pixel).
-                        // 2. Read back menu.Location so WinForms' internal idea of the
-                        //    position syncs with reality (a raw SetWindowPos alone left
-                        //    the strip's click-away logic broken).
-                        // Using menu.Location alone was wrong: it expects WinForms logical
-                        // coordinates, so assigning physical values displaced the menu
-                        // (measured on the user's Win11: assigned 1000,500 showed at
-                        // 2640,1414, 140px off the cursor).
-                        NativeMethods.SetWindowPos(menu.Handle, IntPtr.Zero, x, y, 0, 0,
-                            0x0001 | 0x0004 | 0x0010);   // SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
-                        // sync WinForms: read the actual position back into Location
-                        NativeMethods.WindowRect after;
-                        if (NativeMethods.GetWindowRect(menu.Handle, out after))
-                        {
-                            menu.Location = new Point(after.Left, after.Top);
-                        }
-                        App.Log("tray menu moved from " + mr.Left + "," + mr.Top + " to physical " + x + "," + y
-                            + " (cursor " + cp.X + "," + cp.Y + ")");
+                        // DATA (Win11, scale=2): menu.Location accepts PHYSICAL pixels.
+                        // Assigning physical 1440,900 -> final physical 1440,900 is correct;
+                        // dividing by scale moved it to 720,450 (half). So assign as-is.
+                        menu.Location = new Point(x, y);
+                        NativeMethods.WindowRect final;
+                        NativeMethods.GetWindowRect(menu.Handle, out final);
+                        App.Log("tray menu: cursor=" + cp.X + "," + cp.Y
+                            + " scale=" + _scale
+                            + " logical=" + menu.Width + "x" + menu.Height
+                            + " physical=" + (final.Right - final.Left) + "x" + (final.Bottom - final.Top)
+                            + " before=" + mr.Left + "," + mr.Top
+                            + " target=" + x + "," + y
+                            + " final=" + final.Left + "," + final.Top);
                     }
                     catch (Exception ex) { App.Log("tray menu move failed: " + ex.Message); }
                 };
