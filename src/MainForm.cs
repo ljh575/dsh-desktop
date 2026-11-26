@@ -301,19 +301,15 @@ namespace DshDesktop
             LayoutTitle();
         }
 
-        // Two bands, because the page's left rail and its content surface are
-        // different colours. Splitting the bar where the page splits keeps the
-        // seam invisible in both themes.
+        // One flat colour across the whole caption. The old two-band split (left band
+        // in the page's left-rail colour) read as a permanent colour patch on the left
+        // whenever the rail colour differed from the content surface - the user saw it
+        // on both themes and both OSes. A uniform _chromeRight dissolves the seam.
         private void PaintChrome(Graphics g)
         {
             if (_title == null) return;
-            int width = _title.ClientSize.Width;
-            int height = _title.ClientSize.Height;
-            int split = Math.Max(0, Math.Min(width, _chromeSplit));
-            using (SolidBrush left = new SolidBrush(_chromeLeft))
-                g.FillRectangle(left, 0, 0, split, height);
-            using (SolidBrush right = new SolidBrush(_chromeRight))
-                g.FillRectangle(right, split, 0, width - split, height);
+            using (SolidBrush fill = new SolidBrush(_chromeRight))
+                g.FillRectangle(fill, 0, 0, _title.ClientSize.Width, _title.ClientSize.Height);
         }
 
         private void LayoutTitle()
@@ -1089,42 +1085,47 @@ namespace DshDesktop
             // NotifyIcon shows the popup itself (its path owns focus and the modal input
             // filter, so item clicks work - a hand-rolled menu.Show broke them). But its
             // position goes through WinForms' task-bar logic, which on multi-monitor
-            // setups lands the menu nowhere near the icon (measured: menu 980px away in
-            // another monitor's corner; the user saw it fully off screen). Once shown,
-            // measure where it really is and, if it is not beside the cursor, move it
-            // there in the physical space this DPI-aware process already uses.
+            // setups lands the menu nowhere near the icon (measured: menu 849px away in
+            // another monitor's corner; the user saw it fully off screen). Windows 11
+            // only: Win10's positioning was never reported broken, and this hook must
+            // not change its behaviour. Once shown, measure where the menu really is
+            // and, if it is not beside the cursor, move it there in the physical space
+            // this DPI-aware process already uses.
             if (_tray != null) _tray.ContextMenuStrip = menu;
-            menu.Opened += delegate
+            if (NativeMethods.Windows11)
             {
-                try
+                menu.Opened += delegate
                 {
-                    NativeMethods.WindowRect mr;
-                    // WinForms' Cursor.Position reports the point in its own (mangled)
-                    // coordinate space here - measured: physical 700,420 read as 1679,186.
-                    // GetCursorPos is the same physical space as GetWindowRect and the
-                    // monitor APIs, so the whole correction stays in one domain.
-                    NativeMethods.MonitorPoint cp;
-                    if (!NativeMethods.GetWindowRect(menu.Handle, out mr) || !NativeMethods.GetCursorPos(out cp))
-                        return;
-                    bool near = Math.Abs(mr.Left - cp.X) < 60 && Math.Abs(mr.Top - cp.Y) < 60;
-                    App.Log("tray menu opened at " + mr.Left + "," + mr.Top + " cursor=" + cp.X + "," + cp.Y
-                        + (near ? " (near)" : " (moving)"));
-                    if (near) return;
-                    NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
-                    mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
-                    NativeMethods.MonitorPoint mp = new NativeMethods.MonitorPoint();
-                    mp.X = cp.X; mp.Y = cp.Y;
-                    IntPtr mon = NativeMethods.MonitorFromPoint(mp, 1);
-                    if (mon == IntPtr.Zero || !NativeMethods.GetMonitorInfo(mon, ref mi)) return;
-                    int w = mr.Right - mr.Left, h = mr.Bottom - mr.Top;
-                    int x = Math.Max(mi.rcWork.Left, Math.Min(cp.X, mi.rcWork.Right - w));
-                    int y = Math.Max(mi.rcWork.Top, Math.Min(cp.Y, mi.rcWork.Bottom - h));
-                    // Move through WinForms so the strip's own idea of its position stays
-                    // in sync (a raw SetWindowPos desynced it and broke click-away).
-                    menu.Location = new Point(x, y);
-                }
-                catch (Exception ex) { App.Log("tray menu move failed: " + ex.Message); }
-            };
+                    try
+                    {
+                        NativeMethods.WindowRect mr;
+                        // WinForms' Cursor.Position reports the point in its own (mangled)
+                        // coordinate space here - measured: physical 700,420 read as 1679,186.
+                        // GetCursorPos is the same physical space as GetWindowRect and the
+                        // monitor APIs, so the whole correction stays in one domain.
+                        NativeMethods.MonitorPoint cp;
+                        if (!NativeMethods.GetWindowRect(menu.Handle, out mr) || !NativeMethods.GetCursorPos(out cp))
+                            return;
+                        bool near = Math.Abs(mr.Left - cp.X) < 60 && Math.Abs(mr.Top - cp.Y) < 60;
+                        if (near) return;
+                        NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
+                        mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
+                        NativeMethods.MonitorPoint mp = new NativeMethods.MonitorPoint();
+                        mp.X = cp.X; mp.Y = cp.Y;
+                        IntPtr mon = NativeMethods.MonitorFromPoint(mp, 1);
+                        if (mon == IntPtr.Zero || !NativeMethods.GetMonitorInfo(mon, ref mi)) return;
+                        int w = mr.Right - mr.Left, h = mr.Bottom - mr.Top;
+                        int x = Math.Max(mi.rcWork.Left, Math.Min(cp.X, mi.rcWork.Right - w));
+                        int y = Math.Max(mi.rcWork.Top, Math.Min(cp.Y, mi.rcWork.Bottom - h));
+                        // Move through WinForms so the strip's own idea of its position stays
+                        // in sync (a raw SetWindowPos desynced it and broke click-away).
+                        menu.Location = new Point(x, y);
+                        App.Log("tray menu moved from " + mr.Left + "," + mr.Top + " to " + x + "," + y
+                            + " (cursor " + cp.X + "," + cp.Y + ")");
+                    }
+                    catch (Exception ex) { App.Log("tray menu move failed: " + ex.Message); }
+                };
+            }
             foreach (ToolStripItem entry in menu.Items)
             {
                 entry.ForeColor = theme.Text;
@@ -2064,27 +2065,34 @@ namespace DshDesktop
 
 
         // Windows 11: correct a maximized window whose WinForms-computed size does not
-        // match the monitor's real work area. Everything is measured in physical pixels
-        // through GetWindowRect/GetMonitorInfo/SetWindowPos - one coordinate space, no
-        // WinForms Screen involvement. The correction re-triggers WM_SIZE, which lands
-        // here again and finds the rect already correct, so it terminates naturally.
+        // match its monitor's real work area. The target monitor comes from the cursor
+        // (the user just clicked maximize/restore on a window under it), NOT from
+        // MonitorFromWindow: the bogus WinForms rect can sit between monitors, and
+        // DEFAULTTONEAREST then picks the wrong one - measured on the user's machine:
+        // window at 3360,-290 (secondary) was corrected onto the primary's work area.
+        // Everything is measured in physical pixels through GetWindowRect/GetCursorPos/
+        // GetMonitorInfo/SetWindowPos - one coordinate space, no WinForms involvement.
         private void CorrectMaximizedGeometry()
         {
             try
             {
-                NativeMethods.WindowRect wr;
-                if (!NativeMethods.GetWindowRect(Handle, out wr)) return;
+                NativeMethods.MonitorPoint cp;
+                if (!NativeMethods.GetCursorPos(out cp)) return;
                 NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
                 mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
-                IntPtr monitor = NativeMethods.MonitorFromWindow(Handle, 1);   // MONITOR_DEFAULTTONEAREST
+                NativeMethods.MonitorPoint mp = new NativeMethods.MonitorPoint();
+                mp.X = cp.X; mp.Y = cp.Y;
+                IntPtr monitor = NativeMethods.MonitorFromPoint(mp, 1);   // MONITOR_DEFAULTTONEAREST
                 if (monitor == IntPtr.Zero || !NativeMethods.GetMonitorInfo(monitor, ref mi)) return;
+                NativeMethods.WindowRect wr;
+                if (!NativeMethods.GetWindowRect(Handle, out wr)) return;
                 if (wr.Left == mi.rcWork.Left && wr.Top == mi.rcWork.Top
                     && wr.Right == mi.rcWork.Right && wr.Bottom == mi.rcWork.Bottom) return;
                 // Diagnostic for the user's machine: what WinForms produced vs the real
                 // work area, and whether the correction engaged.
                 App.Log("maximize fix: window=" + wr.Left + "," + wr.Top + ".." + wr.Right + "," + wr.Bottom
                     + " work=" + mi.rcWork.Left + "," + mi.rcWork.Top + ".." + mi.rcWork.Right + "," + mi.rcWork.Bottom
-                    + " correcting");
+                    + " cursor=" + cp.X + "," + cp.Y + " correcting");
                 NativeMethods.SetWindowPos(Handle, IntPtr.Zero,
                     mi.rcWork.Left, mi.rcWork.Top,
                     mi.rcWork.Right - mi.rcWork.Left, mi.rcWork.Bottom - mi.rcWork.Top,
