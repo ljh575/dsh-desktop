@@ -2062,43 +2062,58 @@ namespace DshDesktop
             public IntPtr lppos;
         }
 
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct NativePoint { public int X; public int Y; }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct MinMaxInfo
+        {
+            public NativePoint ptReserved;
+            public NativePoint ptMaxSize;
+            public NativePoint ptMaxPosition;
+            public NativePoint ptMinTrackSize;
+            public NativePoint ptMaxTrackSize;
+        }
 
 
-        // Windows 11: correct a maximized window whose WinForms-computed size does not
-        // match its monitor's real work area. The target monitor comes from the cursor
-        // (the user just clicked maximize/restore on a window under it), NOT from
-        // MonitorFromWindow: the bogus WinForms rect can sit between monitors, and
-        // DEFAULTTONEAREST then picks the wrong one - measured on the user's machine:
-        // window at 3360,-290 (secondary) was corrected onto the primary's work area.
-        // Everything is measured in physical pixels through GetWindowRect/GetCursorPos/
-        // GetMonitorInfo/SetWindowPos - one coordinate space, no WinForms involvement.
-        private void CorrectMaximizedGeometry()
+
+        // Windows 11: pin the maximize geometry to the real work area of the monitor
+        // under the CURSOR (the user just clicked maximize over the window), measured
+        // with Win32 GetCursorPos/MonitorFromPoint/GetMonitorInfo - one physical
+        // coordinate space. WinForms' Screen and Cursor.Position were both measured
+        // returning mangled values on multi-DPI-monitor setups, so nothing here goes
+        // through WinForms. This is the message-level fix (WM_GETMINMAXINFO) from the
+        // accepted answer of SO 22103947: the system and WinForms then compute the
+        // maximize placement from correct numbers, instead of being corrected after
+        // the fact - the earlier after-the-fact SetWindowPos polluted the restore
+        // bounds (measured: second maximize landed at -5504 after the first fix).
+        private void ClampMaximizeToWorkArea(IntPtr lParam)
         {
             try
             {
                 NativeMethods.MonitorPoint cp;
                 if (!NativeMethods.GetCursorPos(out cp)) return;
-                NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
-                mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
                 NativeMethods.MonitorPoint mp = new NativeMethods.MonitorPoint();
                 mp.X = cp.X; mp.Y = cp.Y;
                 IntPtr monitor = NativeMethods.MonitorFromPoint(mp, 1);   // MONITOR_DEFAULTTONEAREST
-                if (monitor == IntPtr.Zero || !NativeMethods.GetMonitorInfo(monitor, ref mi)) return;
-                NativeMethods.WindowRect wr;
-                if (!NativeMethods.GetWindowRect(Handle, out wr)) return;
-                if (wr.Left == mi.rcWork.Left && wr.Top == mi.rcWork.Top
-                    && wr.Right == mi.rcWork.Right && wr.Bottom == mi.rcWork.Bottom) return;
-                // Diagnostic for the user's machine: what WinForms produced vs the real
-                // work area, and whether the correction engaged.
-                App.Log("maximize fix: window=" + wr.Left + "," + wr.Top + ".." + wr.Right + "," + wr.Bottom
-                    + " work=" + mi.rcWork.Left + "," + mi.rcWork.Top + ".." + mi.rcWork.Right + "," + mi.rcWork.Bottom
-                    + " cursor=" + cp.X + "," + cp.Y + " correcting");
-                NativeMethods.SetWindowPos(Handle, IntPtr.Zero,
-                    mi.rcWork.Left, mi.rcWork.Top,
-                    mi.rcWork.Right - mi.rcWork.Left, mi.rcWork.Bottom - mi.rcWork.Top,
-                    0x0004 | 0x0010);   // SWP_NOZORDER | SWP_NOACTIVATE
+                if (monitor == IntPtr.Zero) return;
+                NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
+                mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
+                if (!NativeMethods.GetMonitorInfo(monitor, ref mi)) return;
+
+                MinMaxInfo mmi = (MinMaxInfo)System.Runtime.InteropServices.Marshal
+                    .PtrToStructure(lParam, typeof(MinMaxInfo));
+                mmi.ptMaxPosition.X = mi.rcWork.Left - mi.rcMonitor.Left;
+                mmi.ptMaxPosition.Y = mi.rcWork.Top - mi.rcMonitor.Top;
+                mmi.ptMaxSize.X = mi.rcWork.Right - mi.rcWork.Left;
+                mmi.ptMaxSize.Y = mi.rcWork.Bottom - mi.rcWork.Top;
+                mmi.ptMaxTrackSize.X = mmi.ptMaxSize.X;
+                mmi.ptMaxTrackSize.Y = mmi.ptMaxSize.Y;
+                System.Runtime.InteropServices.Marshal.StructureToPtr(mmi, lParam, true);
+                App.Log("minmax clamp: cursor=" + cp.X + "," + cp.Y
+                    + " work=" + mi.rcWork.Left + "," + mi.rcWork.Top + ".." + mi.rcWork.Right + "," + mi.rcWork.Bottom);
             }
-            catch (Exception ex) { App.Log("maximize fix failed: " + ex.Message); }
+            catch (Exception ex) { App.Log("minmax clamp failed: " + ex.Message); }
         }
 
         protected override void WndProc(ref Message m)
@@ -2152,17 +2167,18 @@ namespace DshDesktop
                 return;
             }
 
-            // Windows 11 only. WinForms' maximize path can land on a wrong size on
-            // high-DPI monitors (measured 1680x1010 on a 2560x1380 work area), leaving
-            // gaps on the left/right/bottom. After any WM_SIZE while zoomed, compare the
-            // physical window rect against the monitor's real work area (Win32
-            // MonitorFromWindow/GetMonitorInfo - not WinForms Screen, whose values were
-            // also off) and correct once. The message still falls through to WinForms so
-            // its layout updates normally.
-            const int WM_SIZE = 0x0005;
-            if (NativeMethods.Windows11 && m.Msg == WM_SIZE && NativeMethods.IsZoomed(Handle))
+            // Maximize geometry, both OSes: WinForms' maximize on a mixed-DPI multi-
+            // monitor setup lands on wrong sizes (measured: half-width on this
+            // machine's secondary, off-screen on the user's Win10). WM_GETMINMAXINFO
+            // with the cursor's monitor work area (the SO 22103947 approach) fixes it
+            // at the message level - the system then places the window correctly
+            // itself. Windows 10 (no thick frame) also needs this, so it is not gated.
+            const int WM_GETMINMAXINFO = 0x0024;
+            if (m.Msg == WM_GETMINMAXINFO)
             {
-                CorrectMaximizedGeometry();
+                base.WndProc(ref m);
+                ClampMaximizeToWorkArea(m.LParam);
+                return;
             }
 
             // A frameless window loses the native resize border, so restore it by
