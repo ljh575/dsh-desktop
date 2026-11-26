@@ -195,7 +195,10 @@ namespace DshDesktop
 
             _titleIcon = new PictureBox();
             _titleIcon.SizeMode = PictureBoxSizeMode.Zoom;
-            _titleIcon.BackColor = _chromeLeft;
+            // Transparent like the text label: the icon box sits over the caption's
+            // two-colour split, and a solid _chromeLeft (a colour that follows the web
+            // page) read as a mismatched patch whenever it differs from the caption.
+            _titleIcon.BackColor = Color.Transparent;
             try
             {
                 Assembly asm = Assembly.GetExecutingAssembly();
@@ -365,7 +368,8 @@ namespace DshDesktop
                 // Transparent so PaintChrome's split shows through (see BuildTitleBar).
                 _titleText.BackColor = Color.Transparent;
             }
-            if (_titleIcon != null) _titleIcon.BackColor = _chromeLeft;
+            // Transparent so PaintChrome's split shows through (see BuildTitleBar).
+            if (_titleIcon != null) _titleIcon.BackColor = Color.Transparent;
 
             foreach (ChromeButton button in new ChromeButton[] { _btnSettings, _btnMenu, _btnMin, _btnMax, _btnClose })
             {
@@ -1070,21 +1074,57 @@ namespace DshDesktop
             // are refreshed right before it opens.
             menu.Opening += delegate
             {
-                App.Log("tray menu Opening");
                 MoveFocusOffWebView2();
                 SyncTrayMenu(menu);
             };
-            menu.Opened += delegate { App.Log("tray menu Opened, bounds=" + menu.Bounds); };
             menu.Closing += delegate(object s, ToolStripDropDownClosingEventArgs e)
             {
-                App.Log("tray menu Closing, reason=" + e.CloseReason);
-            };
-            menu.Closed += delegate(object s, ToolStripDropDownClosedEventArgs e)
-            {
-                App.Log("tray menu Closed, reason=" + e.CloseReason);
+                // The page's Chromium window bounces activation back as the popup shows;
+                // swallow that close only while this window owns the foreground, so
+                // switching to another app still dismisses the menu.
+                if (e.CloseReason == ToolStripDropDownCloseReason.AppFocusChange && OwnForeground())
+                    e.Cancel = true;
             };
             _trayMenu = menu;
+            // NotifyIcon shows the popup itself (its path owns focus and the modal input
+            // filter, so item clicks work - a hand-rolled menu.Show broke them). But its
+            // position goes through WinForms' task-bar logic, which on multi-monitor
+            // setups lands the menu nowhere near the icon (measured: menu 980px away in
+            // another monitor's corner; the user saw it fully off screen). Once shown,
+            // measure where it really is and, if it is not beside the cursor, move it
+            // there in the physical space this DPI-aware process already uses.
             if (_tray != null) _tray.ContextMenuStrip = menu;
+            menu.Opened += delegate
+            {
+                try
+                {
+                    NativeMethods.WindowRect mr;
+                    // WinForms' Cursor.Position reports the point in its own (mangled)
+                    // coordinate space here - measured: physical 700,420 read as 1679,186.
+                    // GetCursorPos is the same physical space as GetWindowRect and the
+                    // monitor APIs, so the whole correction stays in one domain.
+                    NativeMethods.MonitorPoint cp;
+                    if (!NativeMethods.GetWindowRect(menu.Handle, out mr) || !NativeMethods.GetCursorPos(out cp))
+                        return;
+                    bool near = Math.Abs(mr.Left - cp.X) < 60 && Math.Abs(mr.Top - cp.Y) < 60;
+                    App.Log("tray menu opened at " + mr.Left + "," + mr.Top + " cursor=" + cp.X + "," + cp.Y
+                        + (near ? " (near)" : " (moving)"));
+                    if (near) return;
+                    NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
+                    mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
+                    NativeMethods.MonitorPoint mp = new NativeMethods.MonitorPoint();
+                    mp.X = cp.X; mp.Y = cp.Y;
+                    IntPtr mon = NativeMethods.MonitorFromPoint(mp, 1);
+                    if (mon == IntPtr.Zero || !NativeMethods.GetMonitorInfo(mon, ref mi)) return;
+                    int w = mr.Right - mr.Left, h = mr.Bottom - mr.Top;
+                    int x = Math.Max(mi.rcWork.Left, Math.Min(cp.X, mi.rcWork.Right - w));
+                    int y = Math.Max(mi.rcWork.Top, Math.Min(cp.Y, mi.rcWork.Bottom - h));
+                    // Move through WinForms so the strip's own idea of its position stays
+                    // in sync (a raw SetWindowPos desynced it and broke click-away).
+                    menu.Location = new Point(x, y);
+                }
+                catch (Exception ex) { App.Log("tray menu move failed: " + ex.Message); }
+            };
             foreach (ToolStripItem entry in menu.Items)
             {
                 entry.ForeColor = theme.Text;
@@ -1096,7 +1136,6 @@ namespace DshDesktop
             // menu far wider than its labels.
             menu.AutoSize = true;
             menu.MinimumSize = new Size(S(120), 0);
-            _tray.ContextMenuStrip = menu;
             _tray.DoubleClick += delegate { RestoreFromTray(); };
             App.Log("tray icon created");
         }
@@ -2041,12 +2080,17 @@ namespace DshDesktop
                 if (monitor == IntPtr.Zero || !NativeMethods.GetMonitorInfo(monitor, ref mi)) return;
                 if (wr.Left == mi.rcWork.Left && wr.Top == mi.rcWork.Top
                     && wr.Right == mi.rcWork.Right && wr.Bottom == mi.rcWork.Bottom) return;
+                // Diagnostic for the user's machine: what WinForms produced vs the real
+                // work area, and whether the correction engaged.
+                App.Log("maximize fix: window=" + wr.Left + "," + wr.Top + ".." + wr.Right + "," + wr.Bottom
+                    + " work=" + mi.rcWork.Left + "," + mi.rcWork.Top + ".." + mi.rcWork.Right + "," + mi.rcWork.Bottom
+                    + " correcting");
                 NativeMethods.SetWindowPos(Handle, IntPtr.Zero,
                     mi.rcWork.Left, mi.rcWork.Top,
                     mi.rcWork.Right - mi.rcWork.Left, mi.rcWork.Bottom - mi.rcWork.Top,
                     0x0004 | 0x0010);   // SWP_NOZORDER | SWP_NOACTIVATE
             }
-            catch { }
+            catch (Exception ex) { App.Log("maximize fix failed: " + ex.Message); }
         }
 
         protected override void WndProc(ref Message m)

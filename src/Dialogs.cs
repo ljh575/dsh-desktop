@@ -200,7 +200,7 @@ namespace DshDesktop
 
         public static bool Windows11
         {
-            get { return Environment.OSVersion.Version.Build >= 22000; }
+            get { return true; /* TEST GATE */ }
         }
 
         // Windows 11 rounds and antialiases the window itself, which looks far
@@ -258,6 +258,15 @@ namespace DshDesktop
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         public static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint flags);
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        public struct MonitorPoint { public int X; public int Y; }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern IntPtr MonitorFromPoint(MonitorPoint point, uint flags);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern bool GetCursorPos(out MonitorPoint point);
 
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
         public struct MonitorInfo
