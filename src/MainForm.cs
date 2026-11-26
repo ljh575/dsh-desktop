@@ -2024,6 +2024,31 @@ namespace DshDesktop
 
 
 
+        // Windows 11: correct a maximized window whose WinForms-computed size does not
+        // match the monitor's real work area. Everything is measured in physical pixels
+        // through GetWindowRect/GetMonitorInfo/SetWindowPos - one coordinate space, no
+        // WinForms Screen involvement. The correction re-triggers WM_SIZE, which lands
+        // here again and finds the rect already correct, so it terminates naturally.
+        private void CorrectMaximizedGeometry()
+        {
+            try
+            {
+                NativeMethods.WindowRect wr;
+                if (!NativeMethods.GetWindowRect(Handle, out wr)) return;
+                NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
+                mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
+                IntPtr monitor = NativeMethods.MonitorFromWindow(Handle, 1);   // MONITOR_DEFAULTTONEAREST
+                if (monitor == IntPtr.Zero || !NativeMethods.GetMonitorInfo(monitor, ref mi)) return;
+                if (wr.Left == mi.rcWork.Left && wr.Top == mi.rcWork.Top
+                    && wr.Right == mi.rcWork.Right && wr.Bottom == mi.rcWork.Bottom) return;
+                NativeMethods.SetWindowPos(Handle, IntPtr.Zero,
+                    mi.rcWork.Left, mi.rcWork.Top,
+                    mi.rcWork.Right - mi.rcWork.Left, mi.rcWork.Bottom - mi.rcWork.Top,
+                    0x0004 | 0x0010);   // SWP_NOZORDER | SWP_NOACTIVATE
+            }
+            catch { }
+        }
+
         protected override void WndProc(ref Message m)
         {
             const int WM_NCHITTEST = 0x0084;
@@ -2073,6 +2098,19 @@ namespace DshDesktop
                     System.Runtime.InteropServices.Marshal.StructureToPtr(p, m.LParam, false);
                 }
                 return;
+            }
+
+            // Windows 11 only. WinForms' maximize path can land on a wrong size on
+            // high-DPI monitors (measured 1680x1010 on a 2560x1380 work area), leaving
+            // gaps on the left/right/bottom. After any WM_SIZE while zoomed, compare the
+            // physical window rect against the monitor's real work area (Win32
+            // MonitorFromWindow/GetMonitorInfo - not WinForms Screen, whose values were
+            // also off) and correct once. The message still falls through to WinForms so
+            // its layout updates normally.
+            const int WM_SIZE = 0x0005;
+            if (NativeMethods.Windows11 && m.Msg == WM_SIZE && NativeMethods.IsZoomed(Handle))
+            {
+                CorrectMaximizedGeometry();
             }
 
             // A frameless window loses the native resize border, so restore it by
