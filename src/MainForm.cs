@@ -216,7 +216,10 @@ namespace DshDesktop
             _titleText.AutoSize = false;
             _titleText.TextAlign = ContentAlignment.MiddleLeft;
             _titleText.Font = new Font("Microsoft YaHei UI", 9f);
-            _titleText.BackColor = _chromeLeft;
+            // Transparent: the label spans the caption's two-colour split, and a solid
+            // _chromeLeft showed as a darker band wherever the split's right half
+            // differs (249,250,251 vs 255,255,255 on light pages; same in dark).
+            _titleText.BackColor = Color.Transparent;
             _title.Controls.Add(_titleText);
 
             _btnSettings = new ChromeButton(ChromeKind.Settings);
@@ -359,7 +362,8 @@ namespace DshDesktop
             if (_titleText != null)
             {
                 _titleText.ForeColor = titleColor;
-                _titleText.BackColor = _chromeLeft;
+                // Transparent so PaintChrome's split shows through (see BuildTitleBar).
+                _titleText.BackColor = Color.Transparent;
             }
             if (_titleIcon != null) _titleIcon.BackColor = _chromeLeft;
 
@@ -2018,40 +2022,7 @@ namespace DshDesktop
             public IntPtr lppos;
         }
 
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct NativePoint { public int X; public int Y; }
 
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct MinMaxInfo
-        {
-            public NativePoint ptReserved;
-            public NativePoint ptMaxSize;
-            public NativePoint ptMaxPosition;
-            public NativePoint ptMinTrackSize;
-            public NativePoint ptMaxTrackSize;
-        }
-
-        // A maximized thick-frame window is sized to the whole monitor with its frame
-        // hanging off-screen, which in a DPI-virtualized WinForms window grows past the
-        // screen by the frame amount. Pin the maximize geometry to the working area, the
-        // way a native window does.
-        private void ClampMaximizeToWorkArea(IntPtr lParam)
-        {
-            try
-            {
-                Screen screen = Screen.FromHandle(Handle);
-                Rectangle work = screen.WorkingArea;
-                Rectangle bounds = screen.Bounds;
-                MinMaxInfo info = (MinMaxInfo)System.Runtime.InteropServices.Marshal
-                    .PtrToStructure(lParam, typeof(MinMaxInfo));
-                info.ptMaxPosition.X = work.X - bounds.X;
-                info.ptMaxPosition.Y = work.Y - bounds.Y;
-                info.ptMaxSize.X = work.Width;
-                info.ptMaxSize.Y = work.Height;
-                System.Runtime.InteropServices.Marshal.StructureToPtr(info, lParam, false);
-            }
-            catch { }
-        }
 
         protected override void WndProc(ref Message m)
         {
@@ -2064,14 +2035,6 @@ namespace DshDesktop
             if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == HotKeySettings)
             {
                 ShowSettings();
-                return;
-            }
-
-            const int WM_GETMINMAXINFO = 0x0024;
-            if (NativeMethods.Windows11 && m.Msg == WM_GETMINMAXINFO)
-            {
-                base.WndProc(ref m);
-                ClampMaximizeToWorkArea(m.LParam);
                 return;
             }
 
@@ -2095,33 +2058,20 @@ namespace DshDesktop
             // the whole window again); DefWindowProc supplies the real thick-frame layout,
             // then the top is pushed back to the window top so no caption band is left.
             // The top resize zone lives in the title bar instead (BuildTitleBar). A
-            // maximized window keeps the system layout, or it would overlap the taskbar.
+            // maximized window keeps the system layout as-is.
             if (NativeMethods.Windows11 && m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
             {
                 NcCalcSizeParams p = (NcCalcSizeParams)System.Runtime.InteropServices.Marshal
                     .PtrToStructure(m.LParam, typeof(NcCalcSizeParams));
                 int windowTop = p.rgrc0.Top;    // on input rgrc0 is the new window rect
                 m.Result = NativeMethods.DefWindowProc(m.HWnd, m.Msg, m.WParam, m.LParam);
-                // Normal state: keep the system frame on the left, right and bottom edges
-                // but remove the top one - the title bar owns the top edge (see
-                // BuildTitleBar). A maximized window pushes all four edges back to the
-                // window instead: it cannot be resized, and because its geometry is
-                // clamped to the work area (WM_GETMINMAXINFO) the frame cannot hang off
-                // screen the way explorer's does - it would show as a grey band.
-                p = (NcCalcSizeParams)System.Runtime.InteropServices.Marshal
-                    .PtrToStructure(m.LParam, typeof(NcCalcSizeParams));
-                if (WindowState == FormWindowState.Maximized)
+                if (WindowState != FormWindowState.Maximized)
                 {
-                    p.rgrc0.Left += NativeMethods.GetSystemMetrics(32);   // SM_CXSIZEFRAME
-                    p.rgrc0.Right -= NativeMethods.GetSystemMetrics(32);
-                    p.rgrc0.Bottom -= NativeMethods.GetSystemMetrics(33); // SM_CYSIZEFRAME
+                    p = (NcCalcSizeParams)System.Runtime.InteropServices.Marshal
+                        .PtrToStructure(m.LParam, typeof(NcCalcSizeParams));
                     p.rgrc0.Top = windowTop;
+                    System.Runtime.InteropServices.Marshal.StructureToPtr(p, m.LParam, false);
                 }
-                else
-                {
-                    p.rgrc0.Top = windowTop;
-                }
-                System.Runtime.InteropServices.Marshal.StructureToPtr(p, m.LParam, false);
                 return;
             }
 
