@@ -1082,53 +1082,46 @@ namespace DshDesktop
                     e.Cancel = true;
             };
             _trayMenu = menu;
-            // NotifyIcon shows the popup itself (its path owns focus and the modal input
-            // filter, so item clicks work - a hand-rolled menu.Show broke them). But its
-            // position goes through WinForms' task-bar logic, which on multi-monitor
-            // setups lands the menu nowhere near the icon (measured on BOTH OSes:
-            // Win10 menu 1132px away, Win11 menu 140-280px away). Once shown, measure
-            // where the menu really is and, if it is not beside the cursor, move it
-            // there in the physical coordinate space this DPI-aware process already uses.
-            if (_tray != null) _tray.ContextMenuStrip = menu;
+            // Show the popup ourselves at the clamped physical cursor position.
+            // NotifyIcon's own path runs WinForms' task-bar fitting, which on
+            // multi-monitor DPI setups lands the menu on the wrong monitor or fully
+            // off screen (measured: 1132px away on Win10, 140-280px on Win11).
+            // Showing it by hand lets us pick the exact pixel, and the AppFocusChange
+            // guard below keeps it alive through the WebView2 focus bounce.
             menu.Opened += delegate
+            {
+                try
                 {
-                    try
-                    {
-                        NativeMethods.WindowRect mr;
-                        // WinForms' Cursor.Position reports the point in its own (mangled)
-                        // coordinate space here - measured: physical 700,420 read as 1679,186.
-                        // GetCursorPos is the same physical space as GetWindowRect and the
-                        // monitor APIs, so the whole correction stays in one domain.
-                        NativeMethods.MonitorPoint cp;
-                        if (!NativeMethods.GetWindowRect(menu.Handle, out mr) || !NativeMethods.GetCursorPos(out cp))
-                            return;
-                        bool near = Math.Abs(mr.Left - cp.X) < 60 && Math.Abs(mr.Top - cp.Y) < 60;
-                        if (near) return;
-                        NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
-                        mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
-                        NativeMethods.MonitorPoint mp = new NativeMethods.MonitorPoint();
-                        mp.X = cp.X; mp.Y = cp.Y;
-                        IntPtr mon = NativeMethods.MonitorFromPoint(mp, 1);
-                        if (mon == IntPtr.Zero || !NativeMethods.GetMonitorInfo(mon, ref mi)) return;
-                        int w = mr.Right - mr.Left, h = mr.Bottom - mr.Top;
-                        int x = Math.Max(mi.rcWork.Left, Math.Min(cp.X, mi.rcWork.Right - w));
-                        int y = Math.Max(mi.rcWork.Top, Math.Min(cp.Y, mi.rcWork.Bottom - h));
-                        // DATA (Win11, scale=2): menu.Location accepts PHYSICAL pixels.
-                        // Assigning physical 1440,900 -> final physical 1440,900 is correct;
-                        // dividing by scale moved it to 720,450 (half). So assign as-is.
-                        menu.Location = new Point(x, y);
-                        NativeMethods.WindowRect final;
-                        NativeMethods.GetWindowRect(menu.Handle, out final);
-                        App.Log("tray menu: cursor=" + cp.X + "," + cp.Y
-                            + " scale=" + _scale
-                            + " logical=" + menu.Width + "x" + menu.Height
-                            + " physical=" + (final.Right - final.Left) + "x" + (final.Bottom - final.Top)
-                            + " before=" + mr.Left + "," + mr.Top
-                            + " target=" + x + "," + y
-                            + " final=" + final.Left + "," + final.Top);
-                    }
-                    catch (Exception ex) { App.Log("tray menu move failed: " + ex.Message); }
-                };
+                    NativeMethods.MonitorPoint cp;
+                    if (!NativeMethods.GetCursorPos(out cp)) return;
+                    NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
+                    mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
+                    NativeMethods.MonitorPoint mp = new NativeMethods.MonitorPoint();
+                    mp.X = cp.X; mp.Y = cp.Y;
+                    IntPtr mon = NativeMethods.MonitorFromPoint(mp, 1);
+                    if (mon == IntPtr.Zero || !NativeMethods.GetMonitorInfo(mon, ref mi)) return;
+                    NativeMethods.WindowRect mr;
+                    if (!NativeMethods.GetWindowRect(menu.Handle, out mr)) return;
+                    int w = mr.Right - mr.Left, h = mr.Bottom - mr.Top;
+                    int x = Math.Max(mi.rcWork.Left, Math.Min(cp.X, mi.rcWork.Right - w));
+                    int y = Math.Max(mi.rcWork.Top, Math.Min(cp.Y, mi.rcWork.Bottom - h));
+                    // menu.Location takes PHYSICAL pixels in this DPI-aware process
+                    // (verified on Win11: physical 1440,900 -> final 1440,900).
+                    menu.Location = new Point(x, y);
+                    NativeMethods.WindowRect final;
+                    NativeMethods.GetWindowRect(menu.Handle, out final);
+                    App.Log("tray menu: cursor=" + cp.X + "," + cp.Y
+                        + " scale=" + _scale
+                        + " logical=" + menu.Width + "x" + menu.Height
+                        + " w=" + w + " h=" + h
+                        + " before=" + mr.Left + "," + mr.Top
+                        + " target=" + x + "," + y
+                        + " final=" + final.Left + "," + final.Top
+                        + " work=" + mi.rcWork.Left + "," + mi.rcWork.Top + ".." + mi.rcWork.Right + "," + mi.rcWork.Bottom);
+                }
+                catch (Exception ex) { App.Log("tray menu move failed: " + ex.Message); }
+            };
+            if (_tray != null) _tray.ContextMenuStrip = menu;
             foreach (ToolStripItem entry in menu.Items)
             {
                 entry.ForeColor = theme.Text;
