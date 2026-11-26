@@ -200,7 +200,7 @@ namespace DshDesktop
 
         public static bool Windows11
         {
-            get { return true; /* TEST GATE */ }
+            get { return Environment.OSVersion.Version.Build >= 22000; }
         }
 
         // Windows 11 rounds and antialiases the window itself, which looks far
