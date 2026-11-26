@@ -1144,7 +1144,16 @@ namespace DshDesktop
             SaveLayout();
             _stateBeforeHide = WindowState;
             Hide();
-            App.Log("hidden to tray");
+            // WinForms and the window styles can disagree here: after a cancelled close
+            // the form reports Visible=false while the HWND still carries WS_VISIBLE, so
+            // the window stays painted on screen. Measured on Windows 11: right after this
+            // method returned, Visible was False but IsWindowVisible was True and the
+            // window was still drawn. Force the window style to match, which is what makes
+            // the first close really disappear (an outside SW_HIDE always worked).
+            if (NativeMethods.IsWindowVisible(Handle))
+                NativeMethods.ShowWindow(Handle, 0 /* SW_HIDE */);
+            App.Log("hidden to tray: visible=" + Visible
+                + " isWindowVisible=" + NativeMethods.IsWindowVisible(Handle));
 
             if (!_trayHintShown)
             {
@@ -1192,7 +1201,14 @@ namespace DshDesktop
             if (!_exiting && _s.CloseToTray && e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
-                HideToTray();
+                // Hide on the next message-loop turn, never from inside this handler.
+                // Cancelling the close makes WinForms put the form back into its visible
+                // state after the closing sequence, which silently undid a Hide() called
+                // here: the window stayed on screen even though "hidden to tray" was
+                // logged (measured on Windows 11 - WS_VISIBLE was still set afterwards,
+                // and an outside SW_HIDE then worked immediately). Deferring runs the
+                // hide after that restore, so the first click really hides.
+                BeginInvoke((Action)HideToTray);
                 return;
             }
 
