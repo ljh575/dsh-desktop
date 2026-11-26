@@ -1085,16 +1085,12 @@ namespace DshDesktop
             // NotifyIcon shows the popup itself (its path owns focus and the modal input
             // filter, so item clicks work - a hand-rolled menu.Show broke them). But its
             // position goes through WinForms' task-bar logic, which on multi-monitor
-            // setups lands the menu nowhere near the icon (measured: menu 849px away in
-            // another monitor's corner; the user saw it fully off screen). Windows 11
-            // only: Win10's positioning was never reported broken, and this hook must
-            // not change its behaviour. Once shown, measure where the menu really is
-            // and, if it is not beside the cursor, move it there in the physical space
-            // this DPI-aware process already uses.
+            // setups lands the menu nowhere near the icon (measured on BOTH OSes:
+            // Win10 menu 1132px away, Win11 menu 140-280px away). Once shown, measure
+            // where the menu really is and, if it is not beside the cursor, move it
+            // there in the physical coordinate space this DPI-aware process already uses.
             if (_tray != null) _tray.ContextMenuStrip = menu;
-            if (NativeMethods.Windows11)
-            {
-                menu.Opened += delegate
+            menu.Opened += delegate
                 {
                     try
                     {
@@ -1117,15 +1113,30 @@ namespace DshDesktop
                         int w = mr.Right - mr.Left, h = mr.Bottom - mr.Top;
                         int x = Math.Max(mi.rcWork.Left, Math.Min(cp.X, mi.rcWork.Right - w));
                         int y = Math.Max(mi.rcWork.Top, Math.Min(cp.Y, mi.rcWork.Bottom - h));
-                        // Move through WinForms so the strip's own idea of its position stays
-                        // in sync (a raw SetWindowPos desynced it and broke click-away).
-                        menu.Location = new Point(x, y);
-                        App.Log("tray menu moved from " + mr.Left + "," + mr.Top + " to " + x + "," + y
+                        // Two-step move:
+                        // 1. SetWindowPos in the physical domain (the same domain as
+                        //    GetCursorPos/GetMonitorInfo - this places the window at the
+                        //    exact physical pixel).
+                        // 2. Read back menu.Location so WinForms' internal idea of the
+                        //    position syncs with reality (a raw SetWindowPos alone left
+                        //    the strip's click-away logic broken).
+                        // Using menu.Location alone was wrong: it expects WinForms logical
+                        // coordinates, so assigning physical values displaced the menu
+                        // (measured on the user's Win11: assigned 1000,500 showed at
+                        // 2640,1414, 140px off the cursor).
+                        NativeMethods.SetWindowPos(menu.Handle, IntPtr.Zero, x, y, 0, 0,
+                            0x0001 | 0x0004 | 0x0010);   // SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
+                        // sync WinForms: read the actual position back into Location
+                        NativeMethods.WindowRect after;
+                        if (NativeMethods.GetWindowRect(menu.Handle, out after))
+                        {
+                            menu.Location = new Point(after.Left, after.Top);
+                        }
+                        App.Log("tray menu moved from " + mr.Left + "," + mr.Top + " to physical " + x + "," + y
                             + " (cursor " + cp.X + "," + cp.Y + ")");
                     }
                     catch (Exception ex) { App.Log("tray menu move failed: " + ex.Message); }
                 };
-            }
             foreach (ToolStripItem entry in menu.Items)
             {
                 entry.ForeColor = theme.Text;
