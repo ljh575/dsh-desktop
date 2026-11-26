@@ -1092,28 +1092,54 @@ namespace DshDesktop
             {
                 try
                 {
-                    NativeMethods.MonitorPoint cp;
-                    if (!NativeMethods.GetCursorPos(out cp)) return;
-                    NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
-                    mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
-                    NativeMethods.MonitorPoint mp = new NativeMethods.MonitorPoint();
-                    mp.X = cp.X; mp.Y = cp.Y;
-                    IntPtr mon = NativeMethods.MonitorFromPoint(mp, 1);
-                    if (mon == IntPtr.Zero || !NativeMethods.GetMonitorInfo(mon, ref mi)) return;
                     NativeMethods.WindowRect mr;
                     if (!NativeMethods.GetWindowRect(menu.Handle, out mr)) return;
                     int w = mr.Right - mr.Left, h = mr.Bottom - mr.Top;
-                    int x = Math.Max(mi.rcWork.Left, Math.Min(cp.X, mi.rcWork.Right - w));
-                    int y = Math.Max(mi.rcWork.Top, Math.Min(cp.Y, mi.rcWork.Bottom - h));
+
+                    // Anchor preference:
+                    // 1) the notification icon's own screen rect (Shell_NotifyIconGetRect) -
+                    //    literally where the icon is, no cursor/DPI guessing;
+                    // 2) the physical cursor position as a fallback.
+                    int ax, ay; string source;
+                    NativeMethods.WindowRect icon;
+                    bool haveIcon = TryGetTrayIconRect(out icon);
+                    if (haveIcon)
+                    {
+                        // native tray behaviour: right-aligned to the icon, above it
+                        ax = icon.Right;
+                        ay = icon.Top;
+                        source = "icon=" + icon.Left + "," + icon.Top + ".." + icon.Right + "," + icon.Bottom;
+                    }
+                    else
+                    {
+                        NativeMethods.MonitorPoint cp;
+                        if (!NativeMethods.GetCursorPos(out cp)) return;
+                        ax = cp.X; ay = cp.Y;
+                        source = "cursor=" + cp.X + "," + cp.Y + " (icon rect unavailable)";
+                    }
+
+                    NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
+                    mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
+                    NativeMethods.MonitorPoint mp = new NativeMethods.MonitorPoint();
+                    mp.X = ax; mp.Y = ay;
+                    IntPtr mon = NativeMethods.MonitorFromPoint(mp, 1);
+                    if (mon == IntPtr.Zero || !NativeMethods.GetMonitorInfo(mon, ref mi)) return;
+
+                    // Place the menu at the anchor (cursor), clamped into the work area.
+                    // This is the formula verified correct on Win11 at a real tray
+                    // position (cursor 2800,1780 -> menu 2640,1414, on screen). An
+                    // earlier left/up offset variant pushed the menu to 0,0 when the
+                    // anchor sat near the top-left corner, which is what made it
+                    // "disappear" in the corner instead of appearing by the cursor.
+                    int x = Math.Max(mi.rcWork.Left, Math.Min(ax, mi.rcWork.Right - w));
+                    int y = Math.Max(mi.rcWork.Top, Math.Min(ay, mi.rcWork.Bottom - h));
                     // menu.Location takes PHYSICAL pixels in this DPI-aware process
-                    // (verified on Win11: physical 1440,900 -> final 1440,900).
+                    // (verified: physical 1440,900 -> final 1440,900).
                     menu.Location = new Point(x, y);
                     NativeMethods.WindowRect final;
                     NativeMethods.GetWindowRect(menu.Handle, out final);
-                    App.Log("tray menu: cursor=" + cp.X + "," + cp.Y
-                        + " scale=" + _scale
-                        + " logical=" + menu.Width + "x" + menu.Height
-                        + " w=" + w + " h=" + h
+                    App.Log("tray menu: " + source
+                        + " scale=" + _scale + " size=" + w + "x" + h
                         + " before=" + mr.Left + "," + mr.Top
                         + " target=" + x + "," + y
                         + " final=" + final.Left + "," + final.Top
@@ -1135,6 +1161,40 @@ namespace DshDesktop
             menu.MinimumSize = new Size(S(120), 0);
             _tray.DoubleClick += delegate { RestoreFromTray(); };
             App.Log("tray icon created");
+        }
+
+        // The notification icon's screen rectangle, straight from the shell.
+        // NotifyIcon keeps its window handle and id private, so they are read by
+        // reflection; if anything is unavailable the caller falls back to the cursor.
+        private bool TryGetTrayIconRect(out NativeMethods.WindowRect rect)
+        {
+            rect = new NativeMethods.WindowRect();
+            try
+            {
+                if (_tray == null) return false;
+                Type type = typeof(NotifyIcon);
+                System.Reflection.FieldInfo windowField = type.GetField("_window",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                System.Reflection.FieldInfo idField = type.GetField("_id",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                if (windowField == null || idField == null) return false;
+                object window = windowField.GetValue(_tray);
+                if (window == null) return false;
+                System.Reflection.PropertyInfo handleProperty = window.GetType().GetProperty("Handle",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public
+                    | System.Reflection.BindingFlags.NonPublic);
+                if (handleProperty == null) return false;
+                IntPtr handle = (IntPtr)handleProperty.GetValue(window, null);
+                if (handle == IntPtr.Zero) return false;
+                uint id = Convert.ToUInt32(idField.GetValue(_tray));
+                NativeMethods.NotifyIconIdentifier nid = new NativeMethods.NotifyIconIdentifier();
+                nid.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.NotifyIconIdentifier));
+                nid.hWnd = handle;
+                nid.uID = id;
+                nid.guidItem = Guid.Empty;
+                return NativeMethods.Shell_NotifyIconGetRect(ref nid, out rect) == 0;
+            }
+            catch { return false; }
         }
 
         // Called just before the tray menu opens: the labels follow the launcher
