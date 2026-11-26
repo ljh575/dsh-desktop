@@ -250,6 +250,9 @@ namespace DshDesktop
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         public static extern bool GetWindowRect(IntPtr hWnd, out WindowRect rect);
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern int GetSystemMetrics(int index);
+
         public const int WH_MOUSE_LL = 14;
 
         public delegate IntPtr MouseHookProc(int code, IntPtr wParam, IntPtr lParam);

@@ -278,10 +278,16 @@ namespace DshDesktop
                 _topResizeBar = new Panel();
                 _topResizeBar.SetBounds(0, 0, _title.ClientSize.Width, Math.Max(4, S(12)));
                 _topResizeBar.Cursor = Cursors.SizeNS;
-                _topResizeBar.BackColor = _chromeLeft;   // painted over by PaintChrome's split
+                _topResizeBar.BackColor = Color.Transparent;   // the caption paint shows through, split included
                 _topResizeBar.MouseDown += drag;
                 _title.Controls.Add(_topResizeBar);
                 _topResizeBar.BringToFront();
+                // keep the buttons above the strip so their hover and clicks are theirs
+                _btnSettings.BringToFront();
+                _btnMenu.BringToFront();
+                _btnMin.BringToFront();
+                _btnMax.BringToFront();
+                _btnClose.BringToFront();
             }
             _title.DoubleClick += delegate { ToggleMaximize(); };
             _titleText.DoubleClick += delegate { ToggleMaximize(); };
@@ -328,8 +334,12 @@ namespace DshDesktop
                 button.SetGlyphScale(_scale);
 
             // The top resize strip spans the title bar and stays on top of its siblings.
+            // A maximized window cannot be resized, so the strip drops its cursor too.
             if (_topResizeBar != null)
+            {
                 _topResizeBar.SetBounds(0, 0, _title.ClientSize.Width, Math.Max(4, S(12)));
+                _topResizeBar.Cursor = WindowState == FormWindowState.Maximized ? Cursors.Default : Cursors.SizeNS;
+            }
         }
 
         private void ApplyChrome()
@@ -345,9 +355,7 @@ namespace DshDesktop
                 _title.BackColor = _chromeRight;
                 _title.Invalidate();
             }
-            // The resize strip sits over the caption and must follow its colour,
-            // otherwise it would read as a foreign band.
-            if (_topResizeBar != null) _topResizeBar.BackColor = _chromeRight;
+            
             if (_titleText != null)
             {
                 _titleText.ForeColor = titleColor;
@@ -2094,13 +2102,26 @@ namespace DshDesktop
                     .PtrToStructure(m.LParam, typeof(NcCalcSizeParams));
                 int windowTop = p.rgrc0.Top;    // on input rgrc0 is the new window rect
                 m.Result = NativeMethods.DefWindowProc(m.HWnd, m.Msg, m.WParam, m.LParam);
-                if (WindowState != FormWindowState.Maximized)
+                // Normal state: keep the system frame on the left, right and bottom edges
+                // but remove the top one - the title bar owns the top edge (see
+                // BuildTitleBar). A maximized window pushes all four edges back to the
+                // window instead: it cannot be resized, and because its geometry is
+                // clamped to the work area (WM_GETMINMAXINFO) the frame cannot hang off
+                // screen the way explorer's does - it would show as a grey band.
+                p = (NcCalcSizeParams)System.Runtime.InteropServices.Marshal
+                    .PtrToStructure(m.LParam, typeof(NcCalcSizeParams));
+                if (WindowState == FormWindowState.Maximized)
                 {
-                    p = (NcCalcSizeParams)System.Runtime.InteropServices.Marshal
-                        .PtrToStructure(m.LParam, typeof(NcCalcSizeParams));
+                    p.rgrc0.Left += NativeMethods.GetSystemMetrics(32);   // SM_CXSIZEFRAME
+                    p.rgrc0.Right -= NativeMethods.GetSystemMetrics(32);
+                    p.rgrc0.Bottom -= NativeMethods.GetSystemMetrics(33); // SM_CYSIZEFRAME
                     p.rgrc0.Top = windowTop;
-                    System.Runtime.InteropServices.Marshal.StructureToPtr(p, m.LParam, false);
                 }
+                else
+                {
+                    p.rgrc0.Top = windowTop;
+                }
+                System.Runtime.InteropServices.Marshal.StructureToPtr(p, m.LParam, false);
                 return;
             }
 
