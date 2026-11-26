@@ -283,6 +283,53 @@ namespace DshDesktop
         [System.Runtime.InteropServices.DllImport("shell32.dll")]
         public static extern int Shell_NotifyIconGetRect(ref NotifyIconIdentifier id, out WindowRect rect);
 
+        // --- Real per-monitor scale for a system-DPI-aware process -------------
+        // Windows virtualises this process: GetMonitorInfo reports 1376x1152 for a
+        // monitor that is really 1720x1440 at 125%. EnumDisplaySettings is NOT
+        // virtualised, so real/virtual yields the true scale. A popup window
+        // (ToolStripDropDown) is positioned in REAL pixels, while GetCursorPos
+        // returns virtualised ones - measured on a 125% secondary monitor: the
+        // menu placed at virtual 2900,869 appeared at physical 2900,869 while the
+        // cursor there was physically at 3205,1122. That mismatch is the tray-menu
+        // bug at non-100% scaling.
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential,
+            CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        public struct DevMode
+        {
+            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string dmDeviceName;
+            public short dmSpecVersion, dmDriverVersion, dmSize, dmDriverExtra;
+            public int dmFields;
+            public int dmPositionX, dmPositionY;
+            public int dmDisplayOrientation, dmDisplayFixedOutput;
+            public short dmColor, dmDuplex, dmYResolution, dmTTOption, dmCollate;
+            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string dmFormName;
+            public short dmLogPixels;
+            public int dmBitsPerPel, dmPelsWidth, dmPelsHeight, dmDisplayFlags, dmDisplayFrequency;
+            public int dmICMMethod, dmICMIntent, dmMediaType, dmDitherType,
+                dmReserved1, dmReserved2, dmPanningWidth, dmPanningHeight;
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential,
+            CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        public struct MonitorInfoEx
+        {
+            public int cbSize;
+            public WindowRect rcMonitor;
+            public WindowRect rcWork;
+            public uint dwFlags;
+            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string szDevice;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode,
+            EntryPoint = "GetMonitorInfoW")]
+        public static extern bool GetMonitorInfoEx(IntPtr monitor, ref MonitorInfoEx info);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        public static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DevMode devMode);
+
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
         public struct MonitorInfo
         {

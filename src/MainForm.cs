@@ -1096,54 +1096,57 @@ namespace DshDesktop
                     if (!NativeMethods.GetWindowRect(menu.Handle, out mr)) return;
                     int w = mr.Right - mr.Left, h = mr.Bottom - mr.Top;
 
-                    // Anchor preference:
-                    // 1) the notification icon's own screen rect (Shell_NotifyIconGetRect) -
-                    //    literally where the icon is, no cursor/DPI guessing;
-                    // 2) the physical cursor position as a fallback.
-                    int ax, ay; string source;
-                    NativeMethods.WindowRect icon;
-                    bool haveIcon = TryGetTrayIconRect(out icon);
-                    if (haveIcon)
-                    {
-                        // native tray behaviour: right-aligned to the icon, above it
-                        ax = icon.Right;
-                        ay = icon.Top;
-                        source = "icon=" + icon.Left + "," + icon.Top + ".." + icon.Right + "," + icon.Bottom;
-                    }
-                    else
-                    {
-                        NativeMethods.MonitorPoint cp;
-                        if (!NativeMethods.GetCursorPos(out cp)) return;
-                        ax = cp.X; ay = cp.Y;
-                        source = "cursor=" + cp.X + "," + cp.Y + " (icon rect unavailable)";
-                    }
+                    // Anchor: the physical cursor position. GetCursorPos returns
+                    // VIRTUALISED coordinates (this process is system-DPI-aware), while a
+                    // popup window is positioned in REAL pixels - measured on a 125%
+                    // secondary monitor: a menu set to virtual 2900,869 appeared at
+                    // physical 2900,869, but the cursor at that spot was physically at
+                    // 3205,1122. So the cursor has to be converted to real pixels using
+                    // the monitor's true scale before the menu is placed.
+                    NativeMethods.MonitorPoint cp;
+                    if (!NativeMethods.GetCursorPos(out cp)) return;
 
+                    NativeMethods.MonitorPoint mp = new NativeMethods.MonitorPoint();
+                    mp.X = cp.X; mp.Y = cp.Y;
+                    IntPtr mon = NativeMethods.MonitorFromPoint(mp, 1);
+                    if (mon == IntPtr.Zero) return;
+
+                    float scale = RealMonitorScale(mon);
                     NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
                     mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
-                    NativeMethods.MonitorPoint mp = new NativeMethods.MonitorPoint();
-                    mp.X = ax; mp.Y = ay;
-                    IntPtr mon = NativeMethods.MonitorFromPoint(mp, 1);
-                    if (mon == IntPtr.Zero || !NativeMethods.GetMonitorInfo(mon, ref mi)) return;
+                    if (!NativeMethods.GetMonitorInfo(mon, ref mi)) return;
 
-                    // Place the menu at the anchor (cursor), clamped into the work area.
-                    // This is the formula verified correct on Win11 at a real tray
-                    // position (cursor 2800,1780 -> menu 2640,1414, on screen). An
-                    // earlier left/up offset variant pushed the menu to 0,0 when the
-                    // anchor sat near the top-left corner, which is what made it
-                    // "disappear" in the corner instead of appearing by the cursor.
-                    int x = Math.Max(mi.rcWork.Left, Math.Min(ax, mi.rcWork.Right - w));
-                    int y = Math.Max(mi.rcWork.Top, Math.Min(ay, mi.rcWork.Bottom - h));
-                    // menu.Location takes PHYSICAL pixels in this DPI-aware process
-                    // (verified: physical 1440,900 -> final 1440,900).
+                    // Convert the virtualised cursor into real pixels: scale the offset
+                    // from the monitor's own virtual origin (the origins coincide).
+                    int realX = mi.rcMonitor.Left + (int)Math.Round((cp.X - mi.rcMonitor.Left) * scale);
+                    int realY = mi.rcMonitor.Top + (int)Math.Round((cp.Y - mi.rcMonitor.Top) * scale);
+                    // Work area in real pixels, same conversion.
+                    int workLeft = mi.rcMonitor.Left + (int)Math.Round((mi.rcWork.Left - mi.rcMonitor.Left) * scale);
+                    int workTop = mi.rcMonitor.Top + (int)Math.Round((mi.rcWork.Top - mi.rcMonitor.Top) * scale);
+                    int workRight = mi.rcMonitor.Left + (int)Math.Round((mi.rcWork.Right - mi.rcMonitor.Left) * scale);
+                    int workBottom = mi.rcMonitor.Top + (int)Math.Round((mi.rcWork.Bottom - mi.rcMonitor.Top) * scale);
+                    // The popup measured its own size in the same real pixels it is placed
+                    // in (verified: GetWindowRect 124x138 matches the on-screen 124x138 on
+                    // the 125% monitor), so the clamp uses w/h unchanged.
+                    int x = Math.Max(workLeft, Math.Min(realX, workRight - w));
+                    int y = Math.Max(workTop, Math.Min(realY, workBottom - h));
+                    // Assign through WinForms first (keeps its internal state sane) but
+                    // then force the real pixel position with SetWindowPos: WinForms
+                    // clamps Location against its VIRTUALISED work area, which pulled a
+                    // target of 3205,1157 back to 3056-124=2932 on the 125% monitor
+                    // (measured). SetWindowPos talks to Win32 directly and is not clamped.
                     menu.Location = new Point(x, y);
+                    NativeMethods.SetWindowPos(menu.Handle, IntPtr.Zero, x, y, 0, 0,
+                        0x0001 | 0x0004 | 0x0010);   // NOSIZE | NOZORDER | NOACTIVATE
                     NativeMethods.WindowRect final;
                     NativeMethods.GetWindowRect(menu.Handle, out final);
-                    App.Log("tray menu: " + source
-                        + " scale=" + _scale + " size=" + w + "x" + h
-                        + " before=" + mr.Left + "," + mr.Top
+                    App.Log("tray menu: cursorV=" + cp.X + "," + cp.Y
+                        + " scale=" + scale.ToString("0.##")
+                        + " cursorReal=" + realX + "," + realY
+                        + " sizeV=" + w + "x" + h
                         + " target=" + x + "," + y
                         + " final=" + final.Left + "," + final.Top
-                        + " work=" + mi.rcWork.Left + "," + mi.rcWork.Top + ".." + mi.rcWork.Right + "," + mi.rcWork.Bottom);
+                        + " workV=" + mi.rcWork.Left + "," + mi.rcWork.Top + ".." + mi.rcWork.Right + "," + mi.rcWork.Bottom);
                 }
                 catch (Exception ex) { App.Log("tray menu move failed: " + ex.Message); }
             };
@@ -1195,6 +1198,32 @@ namespace DshDesktop
                 return NativeMethods.Shell_NotifyIconGetRect(ref nid, out rect) == 0;
             }
             catch { return false; }
+        }
+
+        // The TRUE scale factor of a monitor (1.0 = 100%, 1.25 = 125%).
+        // Windows virtualises this process, so GetMonitorInfo and GetDpiForMonitor
+        // both report the system DPI (96) everywhere - measured: a 1720x1440 monitor
+        // at 125% is reported as 1376x1152 with dpi=96. EnumDisplaySettings is not
+        // virtualised, so real pixels / virtual width recovers the real scale.
+        private static float RealMonitorScale(IntPtr monitor)
+        {
+            try
+            {
+                NativeMethods.MonitorInfoEx mi = new NativeMethods.MonitorInfoEx();
+                mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfoEx));
+                if (!NativeMethods.GetMonitorInfoEx(monitor, ref mi)) return 1f;
+                int virtualWidth = mi.rcMonitor.Right - mi.rcMonitor.Left;
+                if (virtualWidth <= 0 || string.IsNullOrEmpty(mi.szDevice)) return 1f;
+                NativeMethods.DevMode dm = new NativeMethods.DevMode();
+                dm.dmSize = (short)System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.DevMode));
+                if (!NativeMethods.EnumDisplaySettings(mi.szDevice, -1, ref dm)) return 1f;
+                if (dm.dmPelsWidth <= 0) return 1f;
+                float scale = (float)dm.dmPelsWidth / virtualWidth;
+                // Guard against nonsense from a driver reporting odd values.
+                if (scale < 0.5f || scale > 4f) return 1f;
+                return scale;
+            }
+            catch { return 1f; }
         }
 
         // Called just before the tray menu opens: the labels follow the launcher
