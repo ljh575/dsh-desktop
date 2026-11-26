@@ -51,6 +51,7 @@ namespace DshDesktop
         // window with a 40px title bar that paints itself in the page's own
         // colours, the way Electron's titleBarOverlay does there.
         private Panel _title;
+        private Panel _topResizeBar;
         private Label _titleText;
         private PictureBox _titleIcon;
         private ChromeButton _btnSettings, _btnMenu, _btnMin, _btnMax, _btnClose;
@@ -267,6 +268,21 @@ namespace DshDesktop
             _title.MouseDown += drag;
             _titleText.MouseDown += drag;
             _titleIcon.MouseDown += drag;
+            // Windows 11: the top edge is client area, and hover cursors come from the
+            // window that actually owns the pixel (the system never asks our hit test
+            // for it - verified by logging, and the CEFSharp crowd hit the same wall).
+            // A 6px strip with Cursor=SizeNS makes the resize arrow appear natively,
+            // and its MouseDown rides the same drag handler, so clicking it resizes.
+            if (NativeMethods.Windows11)
+            {
+                _topResizeBar = new Panel();
+                _topResizeBar.SetBounds(0, 0, _title.ClientSize.Width, Math.Max(4, S(12)));
+                _topResizeBar.Cursor = Cursors.SizeNS;
+                _topResizeBar.BackColor = _chromeLeft;   // painted over by PaintChrome's split
+                _topResizeBar.MouseDown += drag;
+                _title.Controls.Add(_topResizeBar);
+                _topResizeBar.BringToFront();
+            }
             _title.DoubleClick += delegate { ToggleMaximize(); };
             _titleText.DoubleClick += delegate { ToggleMaximize(); };
             _title.Resize += delegate { LayoutTitle(); };
@@ -310,6 +326,10 @@ namespace DshDesktop
             _btnMax.Kind = WindowState == FormWindowState.Maximized ? ChromeKind.Restore : ChromeKind.Maximize;
             foreach (ChromeButton button in new ChromeButton[] { _btnSettings, _btnMenu, _btnMin, _btnMax, _btnClose })
                 button.SetGlyphScale(_scale);
+
+            // The top resize strip spans the title bar and stays on top of its siblings.
+            if (_topResizeBar != null)
+                _topResizeBar.SetBounds(0, 0, _title.ClientSize.Width, Math.Max(4, S(12)));
         }
 
         private void ApplyChrome()
@@ -325,6 +345,9 @@ namespace DshDesktop
                 _title.BackColor = _chromeRight;
                 _title.Invalidate();
             }
+            // The resize strip sits over the caption and must follow its colour,
+            // otherwise it would read as a foreign band.
+            if (_topResizeBar != null) _topResizeBar.BackColor = _chromeRight;
             if (_titleText != null)
             {
                 _titleText.ForeColor = titleColor;
