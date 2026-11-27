@@ -128,6 +128,13 @@ namespace DshDesktop
             // Windows 11 rounds frameless windows only when asked; the official
             // desktop shell comes out rounded, so match it. Windows 10 stays square.
             HandleCreated += delegate { RoundShell(); };
+            // Ask again once the window is actually on screen. DWM ignores (or only partly
+            // applies) the border-colour attribute on a window that is not yet visible -
+            // measured on Windows 11: setting it at HandleCreated left
+            // DWMWA_VISIBLE_FRAME_BORDER_THICKNESS at 2px, so a 2px frame kept being drawn
+            // outside the rounded silhouette and the corners never looked clean. The dialogs
+            // in this project already re-apply their corners from Shown for the same reason.
+            Shown += delegate { RoundShell(); };
             FormClosing += OnFormClosing;
             KeyPreview = true;
             KeyDown += OnKeyDown;
@@ -149,7 +156,12 @@ namespace DshDesktop
                     NativeMethods.SquareCorners(Handle);
                     return;
                 }
-                NativeMethods.SuppressBorder(Handle);
+                // The border is painted in the caption colour rather than suppressed:
+                // DWMWA_COLOR_NONE also killed the rounding on this Windows 11 build
+                // (measured corner profile stopped converging), while a matching colour keeps
+                // the native quarter-circle and hides the frame just as well.
+                Color border = _chromeRight.IsEmpty ? BackColor : _chromeRight;
+                NativeMethods.BlendBorder(Handle, border);
                 NativeMethods.RoundCorners(Handle);
             }
             catch { }

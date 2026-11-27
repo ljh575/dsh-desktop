@@ -168,10 +168,13 @@ namespace DshDesktop
             try
             {
                 // Windows 10 dialogs stay square with the default style; Windows 11
-                // gets its rounded corners from DWM, not a region clip.
+                // gets its rounded corners from DWM, not a region clip. The frame is painted in
+                // the surface colour instead of being suppressed, because DWMWA_COLOR_NONE also
+                // disabled the rounding on this build (measured: the corner profile stopped
+                // converging instead of forming a quarter circle).
                 Region = null;
                 if (!NativeMethods.Windows11) return;
-                NativeMethods.SuppressBorder(Handle);
+                NativeMethods.BlendBorder(Handle, BackColor);
                 NativeMethods.RoundCorners(Handle);
             }
             catch { }
@@ -229,18 +232,25 @@ namespace DshDesktop
         private const int DwmWindowCornerPreference = 33;
         private const int DwmBorderColor = 34;
         private const int DwmRound = 2;
-        private const int DwmColorNone = unchecked((int)0xFFFFFFFE);
 
-        // Windows 11 paints a one-pixel frame around a window it rounds. These windows
-        // have no frame of their own, so that frame reads as a stray grey outline;
-        // asking for "no border" drops it and keeps the rounded silhouette.
-        public static void SuppressBorder(IntPtr handle)
+        // Windows 11 paints a one-pixel frame around a window it rounds. These windows have no
+        // frame of their own, so that frame reads as a stray grey outline. The obvious fix -
+        // DWMWA_COLOR_NONE (0xFFFFFFFE) - is wrong on this build: measured with four windows
+        // under the same conditions, suppressing the border ALSO broke the rounding. The corner
+        // profile stopped converging (dx stuck at 11px instead of reaching 0), which is exactly
+        // the "cut corner, not a quarter circle" the user saw, while "round only" and
+        // "border = surface colour" both produced a smooth arc (10 9 8 7 6 5 4 2 1 0).
+        // So the border is painted in the window's own colour instead of being suppressed: the
+        // frame disappears visually and the native rounded corner still renders.
+        public static void BlendBorder(IntPtr handle, System.Drawing.Color colour)
         {
             if (!Windows11) return;
             try
             {
-                int none = DwmColorNone;
-                DwmSetWindowAttribute(handle, DwmBorderColor, ref none, sizeof(int));
+                int colorref = colour.R | (colour.G << 8) | (colour.B << 16);
+                int result = DwmSetWindowAttribute(handle, DwmBorderColor, ref colorref, sizeof(int));
+                if (result != 0)
+                    App.Log("dwm border blend failed: " + result.ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
             catch { }
         }

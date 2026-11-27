@@ -824,7 +824,7 @@ namespace DshDesktop
                 Region = null;
                 if (NativeMethods.Windows11)
                 {
-                    NativeMethods.SuppressBorder(Handle);
+                    NativeMethods.BlendBorder(Handle, BackColor);
                     NativeMethods.RoundCorners(Handle);
                 }
             }
