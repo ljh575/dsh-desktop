@@ -1764,22 +1764,29 @@ namespace DshDesktop
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            using (UpdateDialog dialog = new UpdateDialog(_theme ?? Theme.FromPage(_dark, _chromeRight), StopBundledServer))
+            // Same scope as Settings and About, so every dialog follows one rule: the window
+            // is created per-monitor aware, its DPI equals the monitor's, and Scale = dpi/96 is
+            // the only scaling applied. Left unwrapped, this dialog was system-aware and got
+            // the system scale, which made it physically oversized on a lower-DPI monitor.
+            WithPerMonitorDialog(delegate
             {
-                SetPageDim(true);
-                DialogResult result;
-                try { result = dialog.ShowDialog(this); }
-                finally { SetPageDim(false); }
-                if (dialog.RestartRequested) Restart();
-                else if (result == DialogResult.OK)
+                using (UpdateDialog dialog = new UpdateDialog(_theme ?? Theme.FromPage(_dark, _chromeRight), StopBundledServer))
                 {
-                    // The runtime changed on disk; a restart is the only way to
-                    // reload it, so offer it once more.
-                    if (MessageBox.Show(this, Strings.T("update.restartAsk"), Strings.T("update.title"),
-                            MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
-                        Restart();
+                    SetPageDim(true);
+                    DialogResult result;
+                    try { result = dialog.ShowDialog(this); }
+                    finally { SetPageDim(false); }
+                    if (dialog.RestartRequested) Restart();
+                    else if (result == DialogResult.OK)
+                    {
+                        // The runtime changed on disk; a restart is the only way to
+                        // reload it, so offer it once more.
+                        if (MessageBox.Show(this, Strings.T("update.restartAsk"), Strings.T("update.title"),
+                                MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                            Restart();
+                    }
                 }
-            }
+            });
         }
 
         // Called before an in-place update: the running dsh keeps files open in
