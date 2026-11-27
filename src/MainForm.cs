@@ -1107,10 +1107,12 @@ namespace DshDesktop
                 NativeMethods.SetThreadDpiAwarenessContext(NativeMethods.DpiAwarenessPerMonitorV2);
                 NativeMethods.MonitorPoint cp;
                 if (!NativeMethods.GetCursorPos(out cp)) return;
-                // A tray popup only dismisses on an outside click when its owner holds the
-                // foreground; the page's Chromium window would otherwise take it back.
-                MoveFocusOffWebView2();
-                NativeMethods.SetForegroundWindow(_menuOwner);
+                // Nothing here may touch the main window: any activation request while it is
+                // hidden makes Windows/WinForms bring it back, which is exactly the reported
+                // "right-clicking the tray icon shows a blank white dsh-desktop window".
+                // The menu owner is a dedicated hidden window, so it is deliberately NOT
+                // made foreground (SetForegroundWindow on a hidden window fails and lets the
+                // process's other windows take the activation).
                 const uint TPM_RETURNCMD = 0x0100;
                 const uint TPM_RIGHTBUTTON = 0x0002;
                 int command = NativeMethods.TrackPopupMenuEx(menu,
@@ -1123,8 +1125,9 @@ namespace DshDesktop
                     case TrayCmdShow: RestoreFromTray(); break;
                     case TrayCmdSettings: ShowSettings(); break;
                     case TrayCmdAbout:
-                        // The dialog is owned by the window, so bring it back first.
-                        RestoreFromTray();
+                        // Do NOT restore the main window first: the user asked for the
+                        // dialog, not for the window. The dialog is centred on its owner,
+                        // which keeps it on the window's monitor either way.
                         ShowAbout();
                         break;
                     case TrayCmdQuit: ExitFromTray(); break;
@@ -1684,6 +1687,7 @@ namespace DshDesktop
         private void ShowSettings()
         {
             SetPageDim(true);
+            DsDialog.MonitorScale = DialogScale();
             try
             {
                 using (SettingsDialog dialog = new SettingsDialog(_s, _theme ?? Theme.FromPage(_dark, _chromeRight)))
@@ -1692,7 +1696,36 @@ namespace DshDesktop
                     if (dialog.RestartRequested) Restart();
                 }
             }
-            finally { SetPageDim(false); }
+            finally { DsDialog.MonitorScale = 0f; SetPageDim(false); }
+        }
+
+        // The real DPI scale of the monitor this window sits on (1.0 = 100%, 1.25 = 125%).
+        // GetDpiForMonitor only reports the true per-monitor DPI inside a PER-MONITOR-V2
+        // thread context; in this system-DPI-aware process it otherwise answers the system
+        // DPI (or 96). A real-pixels / virtual-width ratio was tried first and is not
+        // reliable: on Windows 11 GetMonitorInfo already reports physical extents there, so
+        // the ratio came out 1 and dialogs were built 1:1 (too small).
+        private float MonitorRealScale(IntPtr monitor)
+        {
+            IntPtr previous = NativeMethods.GetThreadDpiAwarenessContext();
+            try
+            {
+                NativeMethods.SetThreadDpiAwarenessContext(NativeMethods.DpiAwarenessPerMonitorV2);
+                uint dpiX, dpiY;
+                int hr = NativeMethods.GetDpiForMonitor(monitor, 0 /* MDT_EFFECTIVE_DPI */, out dpiX, out dpiY);
+                if (hr == 0 && dpiX >= 72 && dpiX <= 480) return dpiX / 96f;
+                return App.Scale();
+            }
+            catch { return App.Scale(); }
+            finally { NativeMethods.SetThreadDpiAwarenessContext(previous); }
+        }
+
+        // Scale for a dialog about to open: the monitor of this window, since dialogs are
+        // centred on their owner.
+        private float DialogScale()
+        {
+            IntPtr monitor = NativeMethods.MonitorFromWindow(Handle, 2);   // DEFAULTTONEAREST
+            return monitor == IntPtr.Zero ? App.Scale() : MonitorRealScale(monitor);
         }
 
         private void ShowUpdate()
@@ -1839,16 +1872,24 @@ namespace DshDesktop
             if (string.IsNullOrEmpty(dsh)) dsh = Strings.T("about.notStarted");
             string node = NodeVersion();
 
-            using (AboutDialog dialog = new AboutDialog(
-                _theme ?? Theme.FromPage(_dark, _chromeRight),
-                _s.Server ? Strings.T("about.mode.server") : Strings.T("about.mode.client"),
-                _entryUrl ?? ResolveOwner(), dsh, node, runtime,
-                App.ResolveDir(_s.Data, "data"), App.IniPath, App.LogFile))
+            // MonitorScale must be set BEFORE the dialog is constructed: the constructor
+            // reads it to size the window, so assigning it after construction (as an
+            // earlier version did) left About at the system-DPI size.
+            DsDialog.MonitorScale = DialogScale();
+            try
             {
-                SetPageDim(true);
-                try { dialog.ShowDialog(this); }
-                finally { SetPageDim(false); }
+                using (AboutDialog dialog = new AboutDialog(
+                    _theme ?? Theme.FromPage(_dark, _chromeRight),
+                    _s.Server ? Strings.T("about.mode.server") : Strings.T("about.mode.client"),
+                    _entryUrl ?? ResolveOwner(), dsh, node, runtime,
+                    App.ResolveDir(_s.Data, "data"), App.IniPath, App.LogFile))
+                {
+                    SetPageDim(true);
+                    try { dialog.ShowDialog(this); }
+                    finally { SetPageDim(false); }
+                }
             }
+            finally { DsDialog.MonitorScale = 0f; }
         }
 
         private string NodeVersion()
@@ -2075,11 +2116,22 @@ namespace DshDesktop
         {
             try
             {
-                NativeMethods.MonitorPoint cp;
-                if (!NativeMethods.GetCursorPos(out cp)) return;
-                NativeMethods.MonitorPoint mp = new NativeMethods.MonitorPoint();
-                mp.X = cp.X; mp.Y = cp.Y;
-                IntPtr monitor = NativeMethods.MonitorFromPoint(mp, 1);   // MONITOR_DEFAULTTONEAREST
+                // The monitor the WINDOW is on decides the maximize geometry, not the
+                // cursor. Measured on Windows 11 with the window on the 125% secondary and
+                // the cursor on the primary: clamping to the cursor's monitor produced
+                // 1800x1065 at -1720,101 for a 1720x1440 monitor - 80px past the right
+                // edge and 375px short at the bottom. DEFAULTTONULL so a window straddling
+                // two monitors is not silently snapped to the nearest one; the cursor is
+                // only a fallback for a window that is on no monitor at all.
+                IntPtr monitor = NativeMethods.MonitorFromWindow(Handle, 0 /* DEFAULTTONULL */);
+                if (monitor == IntPtr.Zero)
+                {
+                    NativeMethods.MonitorPoint cp;
+                    if (!NativeMethods.GetCursorPos(out cp)) return;
+                    NativeMethods.MonitorPoint mp = new NativeMethods.MonitorPoint();
+                    mp.X = cp.X; mp.Y = cp.Y;
+                    monitor = NativeMethods.MonitorFromPoint(mp, 1);   // MONITOR_DEFAULTTONEAREST
+                }
                 if (monitor == IntPtr.Zero) return;
                 NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
                 mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
@@ -2094,8 +2146,8 @@ namespace DshDesktop
                 mmi.ptMaxTrackSize.X = mmi.ptMaxSize.X;
                 mmi.ptMaxTrackSize.Y = mmi.ptMaxSize.Y;
                 System.Runtime.InteropServices.Marshal.StructureToPtr(mmi, lParam, true);
-                App.Log("minmax clamp: cursor=" + cp.X + "," + cp.Y
-                    + " work=" + mi.rcWork.Left + "," + mi.rcWork.Top + ".." + mi.rcWork.Right + "," + mi.rcWork.Bottom);
+                App.Log("minmax clamp: windowMonitor work=" + mi.rcWork.Left + "," + mi.rcWork.Top
+                    + ".." + mi.rcWork.Right + "," + mi.rcWork.Bottom);
             }
             catch (Exception ex) { App.Log("minmax clamp failed: " + ex.Message); }
         }

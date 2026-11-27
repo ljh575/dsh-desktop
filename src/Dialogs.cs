@@ -26,12 +26,49 @@ namespace DshDesktop
         private readonly Label _titleLabel;
         private readonly ChromeButton _close;
 
+        // Dialogs are built for the monitor they appear on, not for the system DPI.
+        // This process is system-DPI-aware, so a dialog built at the system scale keeps
+        // that physical size on every monitor: measured on a 200% system with a 125%
+        // second monitor, the 520x440 About dialog came out 1040x880 physical there and
+        // the Settings dialog overflowed the monitor and was clipped. MainForm sets this
+        // to the target monitor's real scale before constructing a dialog, and clears it
+        // afterwards (0 means "use the system scale").
+        internal static float MonitorScale;
+
+        // Ratio between the target monitor and the system DPI. Text is drawn at the
+        // window's DC DPI (the system DPI), so font points must shrink by this factor to
+        // come out at the size the monitor's scale calls for.
+        protected float FontFactor
+        {
+            get
+            {
+                float system = App.Scale();
+                return system <= 0f ? 1f : Scale / system;
+            }
+        }
+
+        protected Font UiFont(float points)
+        {
+            return new Font("Microsoft YaHei UI", Math.Max(1f, points * FontFactor));
+        }
+
+        protected Font UiFont(float points, FontStyle style)
+        {
+            return new Font("Microsoft YaHei UI", Math.Max(1f, points * FontFactor), style);
+        }
+
+        protected Font MonoFont(float points)
+        {
+            return new Font("Consolas", Math.Max(1f, points * FontFactor));
+        }
+
         protected DsDialog(Theme palette, string title, int width, int height) : this(palette, title, width, height, 28) { }
 
         protected DsDialog(Theme palette, string title, int width, int height, int cornerRadius)
         {
             Palette = palette;
-            Scale = App.Scale();
+            Scale = MonitorScale > 0f ? MonitorScale : App.Scale();
+            App.Log("dialog scale=" + Scale + " monitorOverride=" + MonitorScale + " title=" + title);
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterParent;
             ShowInTaskbar = false;
@@ -42,7 +79,7 @@ namespace DshDesktop
             BackColor = palette.Surface;
             Padding = new Padding(NativeMethods.Windows11 ? 0 : 1);
             ForeColor = palette.Text;
-            Font = new Font("Microsoft YaHei UI", 9f);
+            Font = UiFont(9f);
             ClientSize = new Size(S(width), S(height));
             try { Icon = App.PickThemeIcon(App.S != null ? App.S.Icon : "default"); } catch { }
             DoubleBuffered = true;
@@ -57,7 +94,7 @@ namespace DshDesktop
             _titleLabel = new Label();
             _titleLabel.Text = title;
             _titleLabel.AutoSize = false;
-            _titleLabel.Font = new Font("Microsoft YaHei UI", 11f, FontStyle.Bold);
+            _titleLabel.Font = UiFont(11f, FontStyle.Bold);
             _titleLabel.ForeColor = palette.Text;
             _titleLabel.BackColor = palette.Header;
             _titleLabel.TextAlign = ContentAlignment.MiddleLeft;
@@ -238,6 +275,9 @@ namespace DshDesktop
         public static extern bool IsWindowVisible(IntPtr handle);
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         public static extern bool ShowWindow(IntPtr handle, int command);
+
+        [System.Runtime.InteropServices.DllImport("shcore.dll")]
+        public static extern int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         public static extern IntPtr DefWindowProc(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
@@ -559,16 +599,16 @@ namespace DshDesktop
         public DownloadDialog(Theme theme) : base(theme, Strings.T("dl.title"), 520, 260)
         {
             AddText(Strings.T("dl.body"), 20, 52, 480, 62,
-                new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
+                UiFont(9f), Palette.TextMuted);
 
             _bar = new ProgressBarEx(theme, Scale);
             _bar.SetBounds(S(20), S(126), S(480), S(18));
             Controls.Add(_bar);
 
             _stage = AddText(Strings.T("dl.downloading"), 20, 150, 300, 22,
-                new Font("Microsoft YaHei UI", 9f), Palette.Text);
+                UiFont(9f), Palette.Text);
             _detail = AddText("", 20, 174, 480, 22,
-                new Font("Microsoft YaHei UI", 8.5f), Palette.TextMuted);
+                UiFont(8.5f), Palette.TextMuted);
 
             _cancel = AddButton(Strings.T("dl.cancel"), 428, 206, 72, false);
             _cancel.Click += delegate { _progress.Cancelled = true; DialogResult = DialogResult.Cancel; Close(); };
@@ -653,7 +693,7 @@ namespace DshDesktop
         public ConfirmDialog(Theme theme, string title, string message, string yes, string no)
             : base(theme, title, 420, 200)
         {
-            AddText(message, 20, 58, 380, 52, new Font("Microsoft YaHei UI", 9f), Palette.Text);
+            AddText(message, 20, 58, 380, 52, UiFont(9f), Palette.Text);
 
             PillButton later = AddButton(no, 196, 136, 96, false);
             later.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
@@ -685,24 +725,24 @@ namespace DshDesktop
             };
 
             Label name = AddText("DSH Desktop", 20, 60, 300, 30,
-                new Font("Microsoft YaHei UI", 13f, FontStyle.Bold), Palette.Text);
+                UiFont(13f, FontStyle.Bold), Palette.Text);
             name.TextAlign = ContentAlignment.MiddleLeft;
             AddText(Strings.T("about.tagline"), 20, 88, 460, 20,
-                new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
+                UiFont(9f), Palette.TextMuted);
 
             int y = 120;
             for (int i = 0; i < labels.Length; i++)
             {
-                Label key = AddText(labels[i], 20, y, 108, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
+                Label key = AddText(labels[i], 20, y, 108, 22, UiFont(9f), Palette.TextMuted);
                 key.TextAlign = ContentAlignment.MiddleLeft;
-                Label value = AddText(values[i] ?? "", 134, y, 366, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
+                Label value = AddText(values[i] ?? "", 134, y, 366, 22, UiFont(9f), Palette.Text);
                 value.TextAlign = ContentAlignment.MiddleLeft;
                 value.AutoEllipsis = true;
                 y += 26;
             }
 
             AddText("© 2026 ljh575 · " + Strings.T("about.rights"), 20, y + 6, 460, 22,
-                new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
+                UiFont(9f), Palette.TextMuted);
 
             PillButton copy = AddButton(Strings.T("about.copy"), 236, 378, 104, false);
             copy.Click += delegate
@@ -755,10 +795,10 @@ namespace DshDesktop
             _theme_dark = theme.Dark;
 
             _installedVersion = Maintenance.InstalledVersion();
-            AddText(Strings.T("update.current") + ":", 20, 64, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
-            _installed = AddText(_installedVersion, 146, 64, 430, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
+            AddText(Strings.T("update.current") + ":", 20, 64, 120, 22, UiFont(9f), Palette.TextMuted);
+            _installed = AddText(_installedVersion, 146, 64, 430, 22, UiFont(9f), Palette.Text);
 
-            AddText(Strings.T("update.channel") + ":", 20, 94, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
+            AddText(Strings.T("update.channel") + ":", 20, 94, 120, 22, UiFont(9f), Palette.TextMuted);
             _channel = new SelectCell(theme, _scale);
             _channel.Items = new string[] { "latest", "next" };
             _channel.SelectedIndex = 0;
@@ -767,10 +807,10 @@ namespace DshDesktop
             Controls.Add(_channel);
             _channel.BringToFront();
 
-            AddText(Strings.T("update.latest") + ":", 20, 128, 120, 22, new Font("Microsoft YaHei UI", 9f), Palette.TextMuted);
-            _latest = AddText("…", 146, 128, 430, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
+            AddText(Strings.T("update.latest") + ":", 20, 128, 120, 22, UiFont(9f), Palette.TextMuted);
+            _latest = AddText("…", 146, 128, 430, 22, UiFont(9f), Palette.Text);
 
-            AddText(Strings.T("update.force"), 20, 158, 300, 22, new Font("Microsoft YaHei UI", 9f), Palette.Text);
+            AddText(Strings.T("update.force"), 20, 158, 300, 22, UiFont(9f), Palette.Text);
             _force = new ToggleSwitch(theme, false, _scale);
             _force.SetBounds(S(452), S(160), S(46), S(24));
             _force.CheckedChanged += delegate { UpdateAvailability(); };
@@ -778,7 +818,7 @@ namespace DshDesktop
             _force.BringToFront();
 
             _status = AddText(Strings.T("update.hint"), 20, 190, 560, 34,
-                new Font("Microsoft YaHei UI", 8.5f), Palette.TextMuted);
+                UiFont(8.5f), Palette.TextMuted);
 
             _log = new TextBox();
             _log.Multiline = true;
@@ -790,7 +830,7 @@ namespace DshDesktop
             _log.BorderStyle = BorderStyle.None;
             _log.BackColor = theme.Dark ? App.Shift(theme.Surface, -6) : Color.FromArgb(248, 249, 251);
             _log.ForeColor = theme.TextMuted;
-            _log.Font = new Font("Consolas", 8.5f);
+            _log.Font = MonoFont(8.5f);
             _log.SetBounds(S(20), S(232), S(560), S(168));
             Controls.Add(_log);
             _log.BringToFront();

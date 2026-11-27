@@ -205,7 +205,7 @@ namespace DshDesktop
             Label label = new Label();
             label.Text = title;
             label.AutoSize = false;
-            label.Font = new Font("Microsoft YaHei UI", 9.5f, FontStyle.Bold);
+            label.Font = UiFont(9.5f, FontStyle.Bold);
             label.ForeColor = Palette.Text;
             label.BackColor = Palette.Surface;
             label.TextAlign = ContentAlignment.BottomLeft;
@@ -234,7 +234,7 @@ namespace DshDesktop
             Label titleLabel = new Label();
             titleLabel.Text = title;
             titleLabel.AutoSize = false;
-            titleLabel.Font = new Font("Microsoft YaHei UI", 9f);
+            titleLabel.Font = UiFont(9f);
             titleLabel.ForeColor = Palette.Text;
             titleLabel.BackColor = Palette.Surface;
             titleLabel.TextAlign = ContentAlignment.TopLeft;
@@ -246,7 +246,7 @@ namespace DshDesktop
                 Label hintLabel = new Label();
                 hintLabel.Text = hint;
                 hintLabel.AutoSize = false;
-                hintLabel.Font = new Font("Microsoft YaHei UI", 8.25f);
+                hintLabel.Font = UiFont(8.25f);
                 hintLabel.ForeColor = Palette.TextMuted;
                 hintLabel.BackColor = Palette.Surface;
                 hintLabel.TextAlign = ContentAlignment.TopLeft;
@@ -286,7 +286,7 @@ namespace DshDesktop
                 Label value = new Label();
                 value.Text = control.Text;
                 value.AutoSize = false;
-                value.Font = new Font("Microsoft YaHei UI", 9f);
+                value.Font = UiFont(9f);
                 value.ForeColor = Palette.TextMuted;
                 value.BackColor = FieldBackMuted();
                 value.TextAlign = ContentAlignment.MiddleLeft;
@@ -398,7 +398,7 @@ namespace DshDesktop
             TextBox box = new TextBox();
             box.Text = value ?? "";
             box.BorderStyle = BorderStyle.None;
-            box.Font = new Font("Microsoft YaHei UI", 9f);
+            box.Font = UiFont(9f);
             box.BackColor = FieldBack();
             box.ForeColor = Palette.Text;
             return box;
