@@ -211,8 +211,10 @@ namespace DshDesktop
                 case "update.done": return zh ? "更新完成，重启后生效。" : "Update finished; restart to apply it.";
                 case "update.failed": return zh ? "更新失败。" : "The update failed.";
                 case "update.restartAsk": return zh ? "更新完成，现在重启 DSH Desktop 吗？" : "Update finished. Restart DSH Desktop now?";
-            case "settings.icon.light": return zh ? "light（dark whale）" : "light (dark whale)";
-            case "settings.icon.dark": return zh ? "dark（white whale）" : "dark (white whale)";
+            case "settings.icon.default": return zh ? "官方图标" : "Official artwork";
+            case "settings.icon.auto": return zh ? "跟随系统主题" : "Follow system theme";
+            case "settings.icon.light": return zh ? "黑鲸" : "Dark whale";
+            case "settings.icon.dark": return zh ? "白鲸" : "White whale";
             case "about.title": return zh ? "关于 DSH Desktop" : "About DSH Desktop";
             case "about.tagline": return zh ? "便携版 DeepSeek Harness 启动器" : "Portable DeepSeek Harness launcher";
             case "about.version": return zh ? "启动器版本" : "Launcher";

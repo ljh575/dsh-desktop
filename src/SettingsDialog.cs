@@ -522,7 +522,7 @@ namespace DshDesktop
 
             _icon = Choice(new string[]
             {
-                "default", "auto",
+                Strings.T("settings.icon.default"), Strings.T("settings.icon.auto"),
                 Strings.T("settings.icon.light"), Strings.T("settings.icon.dark")
             }, IconIndex(_file.Icon));
             Row(Strings.T("settings.icon"), Strings.T("settings.icon.hint"), _icon, false, false);
