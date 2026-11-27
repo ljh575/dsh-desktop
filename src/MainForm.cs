@@ -426,6 +426,18 @@ namespace DshDesktop
                 }
             }
             Invalidate();
+            // The DWM border is painted in the caption colour so the rounded corners render
+            // without a stray outline. That colour is fixed on the window, so a theme switch
+            // left the OLD colour around the edge - a white ring in dark mode, a black one in
+            // light mode. Re-apply it here: every theme change goes through ApplyChrome.
+            // Logged because the colour is the whole point of the fix and a stale value shows
+            // up here immediately.
+            if (IsHandleCreated && WindowState != FormWindowState.Maximized)
+            {
+                NativeMethods.BlendBorder(Handle, _chromeRight);
+                App.Log("dwm border -> " + _chromeRight.R + "," + _chromeRight.G + "," + _chromeRight.B
+                    + " dark=" + _dark);
+            }
         }
 
         // The page is the only reliable source for its own colours: read the
