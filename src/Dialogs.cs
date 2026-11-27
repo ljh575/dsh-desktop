@@ -35,28 +35,32 @@ namespace DshDesktop
         // afterwards (0 means "use the system scale").
         internal static float MonitorScale;
 
-        // Ratio between the target monitor and the system DPI. NOT used for fonts: every
-        // dialog is created inside a PER-MONITOR-V2 thread context, so its window is
-        // per-monitor aware, GetDpiForWindow reports the monitor's real DPI and GDI+ already
-        // renders text at that DPI. Compensating here as well double-scaled the text.
-        protected float FontFactor
+        // Fonts are specified in PIXELS, never points. A point size means different pixel
+        // heights depending on which DC DPI GDI happens to use, and this application mixes
+        // GDI-drawn labels with WinForms controls: measured in one dpi=120 dialog, a 9pt
+        // label drew 31px (9pt at the SYSTEM dpi of 192) while the same 9pt inside a TextBox
+        // drew a different height. With GraphicsUnit.Pixel the requested height is exactly
+        // what is drawn, so text is proportional to the S() layout on every monitor.
+        // Design points are converted at 96 DPI (1pt = 96/72 px) and scaled by the window's
+        // monitor scale.
+        private static float Px(float points, float scale)
         {
-            get { return 1f; }
+            return Math.Max(1f, points * (96f / 72f) * (scale <= 0f ? 1f : scale));
         }
 
         protected Font UiFont(float points)
         {
-            return new Font("Microsoft YaHei UI", Math.Max(1f, points));
+            return new Font("Microsoft YaHei UI", Px(points, Scale), FontStyle.Regular, GraphicsUnit.Pixel);
         }
 
         protected Font UiFont(float points, FontStyle style)
         {
-            return new Font("Microsoft YaHei UI", Math.Max(1f, points), style);
+            return new Font("Microsoft YaHei UI", Px(points, Scale), style, GraphicsUnit.Pixel);
         }
 
         protected Font MonoFont(float points)
         {
-            return new Font("Consolas", Math.Max(1f, points));
+            return new Font("Consolas", Px(points, Scale), FontStyle.Regular, GraphicsUnit.Pixel);
         }
 
         protected DsDialog(Theme palette, string title, int width, int height) : this(palette, title, width, height, 28) { }
@@ -78,6 +82,8 @@ namespace DshDesktop
             ForeColor = palette.Text;
             Font = UiFont(9f);
             ClientSize = new Size(S(width), S(height));
+            App.Log("dialog metric: '" + title + "' scale=" + Scale + " client=" + ClientSize.Width + "x" + ClientSize.Height
+                + " fontPt=" + Font.SizeInPoints + " fontH=" + TextRenderer.MeasureText("Ag", Font).Height);
             try { Icon = App.PickThemeIcon(App.S != null ? App.S.Icon : "default"); } catch { }
             DoubleBuffered = true;
 
