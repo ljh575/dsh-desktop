@@ -2,7 +2,7 @@
 
 > 把 [DeepSeek Harness](https://github.com/deepseek-ai) 的网页版装进一个文件夹：自带 Node 运行时，**dsh 在首次启动时自动下载**，双击 `dsh-desktop.exe` 即可使用。目标机不需要装 Node、不需要管理员权限，也不写注册表。
 
-[English](README.en.md) | 中文 · 当前版本 **1.1.0**
+[English](README.en.md) | 中文 · 当前版本 **1.1.0** · [更新日志](CHANGELOG.md)
 
 ## 这是什么
 

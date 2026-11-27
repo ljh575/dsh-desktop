@@ -2,7 +2,7 @@
 
 > The [DeepSeek Harness](https://github.com/deepseek-ai) web UI in one folder: the Node runtime travels with it and **dsh is downloaded on first launch**, so double-clicking `dsh-desktop.exe` is enough. The target machine needs no Node.js, no administrator rights, and nothing is written to the registry.
 
-English | [中文](README.md) · version **1.1.0**
+English | [中文](README.md) · version **1.1.0** · [changelog](CHANGELOG.md)
 
 ## What it is
 
