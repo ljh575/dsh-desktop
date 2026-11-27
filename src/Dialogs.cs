@@ -743,19 +743,23 @@ namespace DshDesktop
     // themed panel rather than a MessageBox so the whole flow stays consistent.
     internal sealed class AboutDialog : DsDialog
     {
+        // Shown on the "Project" row, which follows "Log".
+        internal const string ProjectUrl = "https://github.com/ljh575/dsh-desktop";
         public AboutDialog(Theme theme, string mode, string address, string dshVersion,
             string nodeVersion, string webviewVersion, string dataDir, string iniPath, string logPath)
-            : base(theme, Strings.T("about.title"), 520, 440)
+            : base(theme, Strings.T("about.title"), 520, 470)
         {
             string[] labels = new string[]
             {
                 Strings.T("about.version"), Strings.T("about.dsh"), Strings.T("about.node"),
                 Strings.T("about.webview"), Strings.T("about.mode"), Strings.T("about.address"),
-                Strings.T("about.data"), Strings.T("about.ini"), Strings.T("about.log")
+                Strings.T("about.data"), Strings.T("about.ini"), Strings.T("about.log"),
+                Strings.T("about.project")
             };
             string[] values = new string[]
             {
-                App.Version, dshVersion, nodeVersion, webviewVersion, mode, address, dataDir, iniPath, logPath
+                App.Version, dshVersion, nodeVersion, webviewVersion, mode, address, dataDir, iniPath, logPath,
+                ProjectUrl
             };
 
             Label name = AddText("DSH Desktop", 20, 60, 300, 30,
@@ -772,13 +776,24 @@ namespace DshDesktop
                 Label value = AddText(values[i] ?? "", 134, y, 366, 22, UiFont(9f), Palette.Text);
                 value.TextAlign = ContentAlignment.MiddleLeft;
                 value.AutoEllipsis = true;
+                // The project row is the one actionable value: clicking it opens the repository.
+                if (i == labels.Length - 1)
+                {
+                    value.ForeColor = Palette.Accent;
+                    value.Cursor = Cursors.Hand;
+                    value.Click += delegate
+                    {
+                        try { Process.Start(new ProcessStartInfo(ProjectUrl) { UseShellExecute = true }); }
+                        catch (Exception ex) { App.Log("open project url failed: " + ex.Message); }
+                    };
+                }
                 y += 26;
             }
 
             AddText("© 2026 ljh575 · " + Strings.T("about.rights"), 20, y + 6, 460, 22,
                 UiFont(9f), Palette.TextMuted);
 
-            PillButton copy = AddButton(Strings.T("about.copy"), 236, 378, 104, false);
+            PillButton copy = AddButton(Strings.T("about.copy"), 236, 408, 104, false);
             copy.Click += delegate
             {
                 string text = "DSH Desktop " + App.Version + Environment.NewLine
@@ -789,11 +804,12 @@ namespace DshDesktop
                     + address + Environment.NewLine
                     + dataDir + Environment.NewLine
                     + iniPath + Environment.NewLine
-                    + logPath;
+                    + logPath + Environment.NewLine
+                    + ProjectUrl;
                 try { Clipboard.SetText(text); copy.Text = Strings.T("about.copied"); }
                 catch (Exception ex) { App.Log("clipboard failed: " + ex.Message); }
             };
-            PillButton close = AddButton(Strings.T("update.close"), 348, 378, 104, true);
+            PillButton close = AddButton(Strings.T("update.close"), 348, 408, 104, true);
             close.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
             CancelButton = close;
         }

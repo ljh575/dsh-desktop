@@ -169,6 +169,62 @@ namespace DshDesktop
 
         private int S(int value) { return (int)Math.Round(value * _scale); }
 
+        // Caption mark: white whale on a dark caption, dark whale on a light one, so it always
+        // contrasts with the strip it sits on. Re-applied from ApplyChrome, which every theme
+        // change passes through; the bitmaps are cached per variant because that runs often.
+        private static readonly Dictionary<string, Bitmap> TitleIcons = new Dictionary<string, Bitmap>();
+        private string _titleIconName;
+
+        private void ApplyTitleIcon()
+        {
+            if (_titleIcon == null) return;
+            string wanted = _dark ? "dsh_white.ico" : "dsh_black.ico";
+            if (string.Equals(wanted, _titleIconName, StringComparison.Ordinal)) return;
+            try
+            {
+                Bitmap bitmap;
+                if (!TitleIcons.TryGetValue(wanted, out bitmap))
+                {
+                    bitmap = LoadTitleIcon(wanted);
+                    if (bitmap == null) return;
+                    TitleIcons[wanted] = bitmap;
+                }
+                _titleIcon.Image = bitmap;
+                _titleIcon.Invalidate();
+                _titleIconName = wanted;
+                App.Log("title icon -> " + wanted + " (dark=" + _dark + ")");
+            }
+            catch (Exception ex) { App.Log("title icon failed: " + ex.Message); }
+        }
+
+        // Icon.ToBitmap() on .NET Framework leaves fully transparent pixels with stale RGB
+        // (alpha 0, but pure white for the white whale), which painted a pale block on a light
+        // caption. Drawing the glyph into a cleared bitmap keeps those pixels clean.
+        private Bitmap LoadTitleIcon(string resource)
+        {
+            Assembly asm = Assembly.GetExecutingAssembly();
+            using (Stream stream = asm.GetManifestResourceStream(resource))
+            {
+                if (stream == null) return null;
+                using (Icon icon = new Icon(stream))
+                {
+                    int size = S(18);
+                    if (size < 8) size = 16;
+                    Bitmap bitmap = new Bitmap(size, size);
+                    using (Graphics g = Graphics.FromImage(bitmap))
+                    {
+                        g.Clear(Color.Transparent);
+                        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                        using (Bitmap source = icon.ToBitmap())
+                            g.DrawImage(source, 0, 0, size, size);
+                        g.Flush();
+                    }
+                    return bitmap;
+                }
+            }
+        }
+
         // The page is its own HWND in another process, so form key handlers never
         // see keystrokes typed over it. A hot key registered while this window is
         // active gives the settings menu a keyboard route anyway; it is released
@@ -212,14 +268,14 @@ namespace DshDesktop
             _titleIcon.BackColor = Color.Transparent;
             try
             {
-                Assembly asm = Assembly.GetExecutingAssembly();
-                using (Stream stream = asm.GetManifestResourceStream("dsh_default.ico"))
+                // Start with the variant matching the current theme; ApplyChrome swaps it when
+                // the page reports a different light/dark.
+                string initial = _dark ? "dsh_white.ico" : "dsh_black.ico";
+                Bitmap icon = LoadTitleIcon(initial);
+                if (icon != null)
                 {
-                    if (stream != null)
-                    {
-                        using (Icon icon = new Icon(stream, new Size(S(16), S(16))))
-                            _titleIcon.Image = icon.ToBitmap();
-                    }
+                    _titleIcon.Image = icon;
+                    _titleIconName = initial;
                 }
             }
             catch { }
@@ -426,6 +482,10 @@ namespace DshDesktop
                 }
             }
             Invalidate();
+            // The caption mark follows the page's light/dark, so it always contrasts with the
+            // caption colour that is being applied here. (The tray icon keeps the user's icon=
+            // setting; this is only the caption image.)
+            ApplyTitleIcon();
             // The DWM border is painted in the caption colour so the rounded corners render
             // without a stray outline. That colour is fixed on the window, so a theme switch
             // left the OLD colour around the edge - a white ring in dark mode, a black one in

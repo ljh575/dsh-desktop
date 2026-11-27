@@ -251,6 +251,7 @@ namespace DshDesktop
                 case "about.data": return zh ? "数据目录" : "Data folder";
                 case "about.ini": return zh ? "配置文件" : "Config file";
                 case "about.log": return zh ? "日志" : "Log";
+                case "about.project": return zh ? "项目" : "Project";
                 case "about.notStarted": return zh ? "未启动" : "not started";
 
                 default: return key;
