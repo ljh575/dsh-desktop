@@ -1684,19 +1684,47 @@ namespace DshDesktop
             catch (Exception ex) { App.Log("page dim failed: " + ex.Message); }
         }
 
+        // Opens a dialog with the thread in a PER-MONITOR-V2 context for its whole lifetime.
+        // Per Microsoft's mixed-mode DPI documentation a window's DPI awareness is whatever
+        // the creating thread had, and GetDpiForWindow then reports the monitor's real DPI
+        // for a per-monitor window but the system DPI for a system-aware one. Because the
+        // tray menu holds a PMv2 context around its command dispatch while the title bar
+        // runs in the normal (system) context, the SAME dialog was per-monitor from one path
+        // (dpi 120, 800x775) and system-aware from the other (dpi 192, 500x484) - which is
+        // exactly the "enlarged from the tray, shrunk from the title bar" report. Scoping
+        // every dialog to PMv2 makes one rule hold every time: window DPI == monitor DPI, so
+        // Scale = monitorDpi/96 sizes it correctly and fonts need no compensation.
+        private void WithPerMonitorDialog(Action open)
+        {
+            IntPtr previous = NativeMethods.GetThreadDpiAwarenessContext();
+            try
+            {
+                NativeMethods.SetThreadDpiAwarenessContext(NativeMethods.DpiAwarenessPerMonitorV2);
+                DsDialog.MonitorScale = DialogScale();
+                open();
+            }
+            finally
+            {
+                DsDialog.MonitorScale = 0f;
+                NativeMethods.SetThreadDpiAwarenessContext(previous);
+            }
+        }
+
         private void ShowSettings()
         {
             SetPageDim(true);
-            DsDialog.MonitorScale = DialogScale();
             try
             {
-                using (SettingsDialog dialog = new SettingsDialog(_s, _theme ?? Theme.FromPage(_dark, _chromeRight)))
+                WithPerMonitorDialog(delegate
                 {
-                    if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                    if (dialog.RestartRequested) Restart();
-                }
+                    using (SettingsDialog dialog = new SettingsDialog(_s, _theme ?? Theme.FromPage(_dark, _chromeRight)))
+                    {
+                        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                        if (dialog.RestartRequested) Restart();
+                    }
+                });
             }
-            finally { DsDialog.MonitorScale = 0f; SetPageDim(false); }
+            finally { SetPageDim(false); }
         }
 
         // The real DPI scale of the monitor this window sits on (1.0 = 100%, 1.25 = 125%).
@@ -1872,11 +1900,7 @@ namespace DshDesktop
             if (string.IsNullOrEmpty(dsh)) dsh = Strings.T("about.notStarted");
             string node = NodeVersion();
 
-            // MonitorScale must be set BEFORE the dialog is constructed: the constructor
-            // reads it to size the window, so assigning it after construction (as an
-            // earlier version did) left About at the system-DPI size.
-            DsDialog.MonitorScale = DialogScale();
-            try
+            WithPerMonitorDialog(delegate
             {
                 using (AboutDialog dialog = new AboutDialog(
                     _theme ?? Theme.FromPage(_dark, _chromeRight),
@@ -1888,8 +1912,7 @@ namespace DshDesktop
                     try { dialog.ShowDialog(this); }
                     finally { SetPageDim(false); }
                 }
-            }
-            finally { DsDialog.MonitorScale = 0f; }
+            });
         }
 
         private string NodeVersion()
@@ -2192,8 +2215,42 @@ namespace DshDesktop
                 NcCalcSizeParams p = (NcCalcSizeParams)System.Runtime.InteropServices.Marshal
                     .PtrToStructure(m.LParam, typeof(NcCalcSizeParams));
                 int windowTop = p.rgrc0.Top;    // on input rgrc0 is the new window rect
+                int windowLeft = p.rgrc0.Left, windowRight = p.rgrc0.Right, windowBottom = p.rgrc0.Bottom;
                 m.Result = NativeMethods.DefWindowProc(m.HWnd, m.Msg, m.WParam, m.LParam);
-                if (WindowState != FormWindowState.Maximized)
+                // Decide "maximized" from the incoming window rect, not from WindowState: the
+                // state flips only after this message, so a WindowState check misses it (the
+                // first attempt did exactly that and the insets stayed).
+                NativeMethods.MonitorPoint mid = new NativeMethods.MonitorPoint();
+                mid.X = (windowLeft + windowRight) / 2;
+                mid.Y = (windowTop + windowBottom) / 2;
+                IntPtr mon = NativeMethods.MonitorFromPoint(mid, 2);   // NEAREST
+                NativeMethods.MonitorInfo mi = new NativeMethods.MonitorInfo();
+                mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MonitorInfo));
+                bool isMax = false;
+                if (mon != IntPtr.Zero && NativeMethods.GetMonitorInfo(mon, ref mi))
+                    isMax = Math.Abs(windowLeft - mi.rcWork.Left) <= 2 && Math.Abs(windowTop - mi.rcWork.Top) <= 2
+                        && Math.Abs(windowRight - mi.rcWork.Right) <= 2 && Math.Abs(windowBottom - mi.rcWork.Bottom) <= 2;
+                if (isMax)
+                {
+                    // A maximized window must have NO client inset. DefWindowProc takes the
+                    // thick frame out of the client area on all sides; an ordinary window pays
+                    // for that because Windows oversizes the maximized window by the frame, but
+                    // WM_GETMINMAXINFO pins this window to the work area exactly, so the
+                    // compensation never happens and the client area ends up short on three
+                    // sides - a translucent band the user sees as "maximize does not fill".
+                    // Measured before: window -1720,101..0,1541 but client
+                    // -1712,101..-7,1533 (insets left=8 right=7 bottom=8). Microsoft's
+                    // custom-frame guidance is that the app owns rgrc[0] here, so replace it
+                    // with the window's work area.
+                    p = (NcCalcSizeParams)System.Runtime.InteropServices.Marshal
+                        .PtrToStructure(m.LParam, typeof(NcCalcSizeParams));
+                    p.rgrc0.Left = mi.rcWork.Left;
+                    p.rgrc0.Top = mi.rcWork.Top;
+                    p.rgrc0.Right = mi.rcWork.Right;
+                    p.rgrc0.Bottom = mi.rcWork.Bottom;
+                    System.Runtime.InteropServices.Marshal.StructureToPtr(p, m.LParam, false);
+                }
+                else
                 {
                     p = (NcCalcSizeParams)System.Runtime.InteropServices.Marshal
                         .PtrToStructure(m.LParam, typeof(NcCalcSizeParams));

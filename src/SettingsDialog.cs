@@ -139,8 +139,36 @@ namespace DshDesktop
             Controls.Add(footer);
             footer.BringToFront();
 
+            // Button widths follow their own text instead of a fixed design width. Fixed
+            // widths truncated longer labels ("Open con...", "Save and ...") at every DPI and
+            // in every language; at 125% the mismatch is worse because the label grows with
+            // the window DPI while the design width only grows with the scale factor.
+            int footTop = S(15), footH = S(34);
+            int right = ClientSize.Width - S(20);
+
+            PillButton restart = FlatButton(Strings.T("settings.saveRestart"), true);
+            int restartW = WidthFor(restart, S(122));
+            restart.SetBounds(right - restartW, footTop, restartW, footH);
+            restart.Click += delegate { Finish(true); };
+            footer.Controls.Add(restart);
+            right -= restartW + S(8);
+
+            PillButton save = FlatButton(Strings.T("settings.save"), false);
+            int saveW = WidthFor(save, S(82));
+            save.SetBounds(right - saveW, footTop, saveW, footH);
+            save.Click += delegate { Finish(false); };
+            footer.Controls.Add(save);
+            right -= saveW + S(8);
+
+            PillButton cancel = FlatButton(Strings.T("settings.cancel"), false);
+            int cancelW = WidthFor(cancel, S(82));
+            cancel.SetBounds(right - cancelW, footTop, cancelW, footH);
+            cancel.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
+            footer.Controls.Add(cancel);
+
             PillButton openIni = FlatButton(Strings.T("settings.openIni"), false);
-            openIni.SetBounds(S(20), S(15), S(122), S(34));
+            int openW = WidthFor(openIni, S(122));
+            openIni.SetBounds(S(20), footTop, openW, footH);
             openIni.Click += delegate
             {
                 try { Process.Start(App.IniPath); }
@@ -150,22 +178,15 @@ namespace DshDesktop
                 }
             };
             footer.Controls.Add(openIni);
+        }
 
-            int right = ClientSize.Width - S(20);
-            PillButton restart = FlatButton(Strings.T("settings.saveRestart"), true);
-            restart.SetBounds(right - S(122), S(15), S(122), S(34));
-            restart.Click += delegate { Finish(true); };
-            footer.Controls.Add(restart);
-
-            PillButton save = FlatButton(Strings.T("settings.save"), false);
-            save.SetBounds(right - S(122) - S(88), S(15), S(82), S(34));
-            save.Click += delegate { Finish(false); };
-            footer.Controls.Add(save);
-
-            PillButton cancel = FlatButton(Strings.T("settings.cancel"), false);
-            cancel.SetBounds(right - S(122) - S(88) - S(88), S(15), S(82), S(34));
-            cancel.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
-            footer.Controls.Add(cancel);
+        // Width that fits the label plus the pill's horizontal padding, never below the
+        // minimum the design asked for.
+        private int WidthFor(PillButton button, int minimum)
+        {
+            Size text = TextRenderer.MeasureText(button.Text, button.Font);
+            int wanted = text.Width + S(28);
+            return Math.Max(minimum, wanted);
         }
 
         private PillButton FlatButton(string text, bool primary)

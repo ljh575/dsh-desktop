@@ -35,31 +35,28 @@ namespace DshDesktop
         // afterwards (0 means "use the system scale").
         internal static float MonitorScale;
 
-        // Ratio between the target monitor and the system DPI. Text is drawn at the
-        // window's DC DPI (the system DPI), so font points must shrink by this factor to
-        // come out at the size the monitor's scale calls for.
+        // Ratio between the target monitor and the system DPI. NOT used for fonts: every
+        // dialog is created inside a PER-MONITOR-V2 thread context, so its window is
+        // per-monitor aware, GetDpiForWindow reports the monitor's real DPI and GDI+ already
+        // renders text at that DPI. Compensating here as well double-scaled the text.
         protected float FontFactor
         {
-            get
-            {
-                float system = App.Scale();
-                return system <= 0f ? 1f : Scale / system;
-            }
+            get { return 1f; }
         }
 
         protected Font UiFont(float points)
         {
-            return new Font("Microsoft YaHei UI", Math.Max(1f, points * FontFactor));
+            return new Font("Microsoft YaHei UI", Math.Max(1f, points));
         }
 
         protected Font UiFont(float points, FontStyle style)
         {
-            return new Font("Microsoft YaHei UI", Math.Max(1f, points * FontFactor), style);
+            return new Font("Microsoft YaHei UI", Math.Max(1f, points), style);
         }
 
         protected Font MonoFont(float points)
         {
-            return new Font("Consolas", Math.Max(1f, points * FontFactor));
+            return new Font("Consolas", Math.Max(1f, points));
         }
 
         protected DsDialog(Theme palette, string title, int width, int height) : this(palette, title, width, height, 28) { }
