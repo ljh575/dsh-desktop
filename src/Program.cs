@@ -49,11 +49,11 @@ namespace DshDesktop
         public string RuntimeDir = "runtime";
         public string AppDir = "app";
         public string ExtraArgs = "";
-        public bool Toolbar = false;
-        public double Zoom = 1.0;
         public string Icon = "default";     // default | auto | light | dark
         public string WebView2Version = WebViewRuntime.DefaultVersion;
-        public bool CloseToTray = false;
+        // ask (prompt on close) | tray (hide to the notification area) | quit (exit).
+        // Replaces the old boolean closetotray=, which is migrated in Parse.
+        public string CloseAction = "ask";
         public bool Telemetry = false;
         public int StartupSeconds = 120;
         public bool SelfTest = false;
@@ -67,6 +67,8 @@ namespace DshDesktop
         public static Settings Parse(string[] args)
         {
             Settings s = new Settings();
+            bool closeActionSeen = false;   // closeaction= present in ini or args
+            bool legacyTraySeen = false;    // old closetotray= present
             IniFile file = null;
             try
             {
@@ -86,13 +88,14 @@ namespace DshDesktop
                 s.RuntimeDir = file.Get("runtime", s.RuntimeDir);
                 s.AppDir = file.Get("app", s.AppDir);
                 s.ExtraArgs = file.Get("args", s.ExtraArgs);
-                s.Toolbar = file.GetBool("toolbar", s.Toolbar);
-                s.Zoom = file.GetDouble("zoom", s.Zoom);
                 s.Icon = file.Get("icon", s.Icon);
 
         
                 s.WebView2Version = file.Get("webview2version", s.WebView2Version);
-                s.CloseToTray = file.GetBool("closetotray", s.CloseToTray);
+                string closeRaw = file.Get("closeaction", null);
+                if (closeRaw != null) { s.CloseAction = NormalizeCloseAction(closeRaw); closeActionSeen = true; }
+                string legacyTrayRaw = file.Get("closetotray", null);
+                if (legacyTrayRaw != null) { legacyTraySeen = ParseBool(legacyTrayRaw, false); }
                 s.Telemetry = file.GetBool("telemetry", s.Telemetry);
                 s.StartupSeconds = file.GetInt("startupseconds", s.StartupSeconds);
             }
@@ -103,7 +106,6 @@ namespace DshDesktop
                 {
                     if (a == "--selftest") { s.SelfTest = true; continue; }
                     if (a == "--bare") { s.Bare = true; continue; }
-                    if (a == "--toolbar") { s.Toolbar = true; continue; }
                             if (a == "--client") { s.Server = false; continue; }
                     if (a == "--download-webview2") { s.ForceWebView2Download = true; continue; }
                     if (a.StartsWith("--update-dsh=")) { s.UpdateToVersion = a.Substring(13); continue; }
@@ -120,10 +122,9 @@ namespace DshDesktop
                     else if (a.StartsWith("--runtime=")) s.RuntimeDir = a.Substring(10);
                     else if (a.StartsWith("--app=")) s.AppDir = a.Substring(6);
                     else if (a.StartsWith("--args=")) s.ExtraArgs = a.Substring(7);
-                    else if (a.StartsWith("--zoom=")) s.Zoom = ParseDouble(a.Substring(7), s.Zoom);
                     else if (a.StartsWith("--icon=")) s.Icon = a.Substring(7);
-            else if (a.StartsWith("--toolbar=")) s.Toolbar = ParseBool(a.Substring(10), s.Toolbar);
-            else if (a.StartsWith("--closetotray=")) s.CloseToTray = ParseBool(a.Substring(14), s.CloseToTray);
+            else if (a.StartsWith("--closeaction=")) { s.CloseAction = NormalizeCloseAction(a.Substring(14)); closeActionSeen = true; }
+            else if (a.StartsWith("--closetotray=")) { legacyTraySeen = ParseBool(a.Substring(14), false); }
             else if (a.StartsWith("--telemetry=")) s.Telemetry = ParseBool(a.Substring(12), s.Telemetry);
             else if (a.StartsWith("--startupseconds=")) s.StartupSeconds = ParseInt(a.Substring(17), s.StartupSeconds);
             else if (a.StartsWith("--webview2version=")) s.WebView2Version = a.Substring(18);
@@ -131,7 +132,20 @@ namespace DshDesktop
 
                 }
             }
+            // closeaction wins when it is written down. Otherwise an older closetotray=1 keeps
+            // its meaning; its absence means "ask", which is the new default.
+            if (!closeActionSeen && legacyTraySeen) s.CloseAction = "tray";
             return s;
+        }
+
+        // Accepts the documented values plus a couple of obvious spellings, and never leaves the
+        // field in a state the rest of the code cannot interpret.
+        private static string NormalizeCloseAction(string v)
+        {
+            string value = (v ?? "").Trim().ToLowerInvariant();
+            if (value == "tray" || value == "minimize" || value == "minimise") return "tray";
+            if (value == "quit" || value == "exit" || value == "close") return "quit";
+            return "ask";
         }
 
         public static bool ParseBool(string v, bool fallback)
@@ -354,12 +368,7 @@ namespace DshDesktop
             sb.AppendLine("# 追加给 dsh web 的参数，通常留空。");
             sb.AppendLine("args=");
             sb.AppendLine();
-            sb.AppendLine("# Address bar: 0 = content-only window (default), 1 = show back/reload/zoom");
-            sb.AppendLine("# 是否显示地址栏：0 = 纯内容窗口（默认），1 = 显示后退/刷新/缩放");
-            sb.AppendLine("toolbar=0");
             sb.AppendLine();
-            sb.AppendLine("# Initial zoom / 初始缩放比例");
-            sb.AppendLine("zoom=1.0");
             sb.AppendLine();
             sb.AppendLine("# Icon style / 图标样式: default | auto | light | dark");
             sb.AppendLine("icon=default");
@@ -373,9 +382,10 @@ namespace DshDesktop
             sb.AppendLine("# 本机没有 WebView2 且目录里也没有时，下载这个固定版本；有系统运行时就优先用系统。");
             sb.AppendLine("webview2version=" + WebViewRuntime.DefaultVersion);
             sb.AppendLine();
-            sb.AppendLine("# Close button: 0 = stop the server and quit (default), 1 = minimize to tray.");
-            sb.AppendLine("# 关闭按钮：0 = 停止服务并退出（默认），1 = 最小化到托盘继续运行。");
-            sb.AppendLine("closetotray=0");
+            sb.AppendLine("# Close button: ask = prompt every time (default), tray = minimize to the");
+            sb.AppendLine("# notification area, quit = stop the server and exit.");
+            sb.AppendLine("# 关闭按钮：ask = 每次询问（默认），tray = 最小化到托盘，quit = 停止服务并退出。");
+            sb.AppendLine("closeaction=ask");
             sb.AppendLine();
             sb.AppendLine("# Send anonymous usage telemetry to DeepSeek: 0 = off (default) / 1 = on");
             sb.AppendLine("# 是否上报匿名使用统计：0 = 关闭（默认）/ 1 = 开启");
@@ -900,11 +910,9 @@ namespace DshDesktop
                 + " profile=" + App.ResolveDir(App.S.Profile, "profile")
                 + " runtime=" + App.ResolveDir(App.S.RuntimeDir, "runtime")
                 + " app=" + App.ResolveDir(App.S.AppDir, "app")
-                + " toolbar=" + (App.S.Toolbar ? "1" : "0")
-                + " zoom=" + App.S.Zoom.ToString("0.0", CultureInfo.InvariantCulture)
                 + " icon=" + App.S.Icon
 
-                + " tray=" + (App.S.CloseToTray ? "1" : "0")
+                + " close=" + App.S.CloseAction
                 + " telemetry=" + (App.S.Telemetry ? "1" : "0")
                 + " startupseconds=" + App.S.StartupSeconds.ToString(CultureInfo.InvariantCulture)
                 + " webview2version=" + App.S.WebView2Version

@@ -27,10 +27,11 @@ namespace DshDesktop
         private readonly ScrollBarEx _scroll;
         private int _y;
 
-        private ToggleSwitch _server, _toolbar, _tray, _telemetry;
+        private ToggleSwitch _server, _telemetry;
         private TextBox _url, _host, _workspace, _data, _profile, _runtimeDir, _appDir, _args;
         private SelectCell _icon;
-        private TextBox _port, _zoom, _startup;
+        private SelectCell _closeAction;
+        private TextBox _port, _startup;
         private readonly List<Control> _serverOnly = new List<Control>();
         private readonly List<Control> _clientOnly = new List<Control>();
 
@@ -527,14 +528,13 @@ namespace DshDesktop
             }, IconIndex(_file.Icon));
             Row(Strings.T("settings.icon"), Strings.T("settings.icon.hint"), _icon, false, false);
 
-            _zoom = Number((decimal)_file.Zoom, 0.5M, 2.0M, 0.1M, 1);
-            Row(Strings.T("settings.zoom"), Strings.T("settings.zoom.hint"), _zoom, false, false);
-
-            _toolbar = new ToggleSwitch(Palette, _file.Toolbar, Scale);
-            Row(Strings.T("settings.toolbar"), Strings.T("settings.toolbar.hint"), _toolbar, false, false);
-
-            _tray = new ToggleSwitch(Palette, _file.CloseToTray, Scale);
-            Row(Strings.T("settings.tray"), Strings.T("settings.tray.hint"), _tray, false, false);
+            // closeaction replaces the old closetotray toggle: ask | tray | quit.
+            _closeAction = Choice(new string[]
+            {
+                Strings.T("settings.closeaction.ask"), Strings.T("settings.closeaction.tray"),
+                Strings.T("settings.closeaction.quit")
+            }, CloseActionIndex(_file.CloseAction));
+            Row(Strings.T("settings.closeaction"), Strings.T("settings.closeaction.hint"), _closeAction, false, false);
 
             Section(Strings.T("settings.section.paths"), false);
 
@@ -580,6 +580,17 @@ namespace DshDesktop
         }
 
         private static string[] IconValues = new string[] { "default", "auto", "light", "dark" };
+
+        // closeaction: ask | tray | quit, in the same order as the dropdown rows.
+        private static int CloseActionIndex(string action)
+        {
+            string value = (action ?? "ask").Trim().ToLowerInvariant();
+            if (value == "tray" || value == "minimize" || value == "minimise") return 1;
+            if (value == "quit" || value == "exit" || value == "close") return 2;
+            return 0;
+        }
+
+        private static string[] CloseActionValues = new string[] { "ask", "tray", "quit" };
 
         private void SyncEnabled()
         {
@@ -632,10 +643,8 @@ namespace DshDesktop
                 _ini.Set("runtime", (_runtimeDir.Text ?? "").Trim());
                 _ini.Set("app", (_appDir.Text ?? "").Trim());
                 _ini.Set("args", (_args.Text ?? "").Trim());
-                _ini.Set("toolbar", _toolbar.Checked ? "1" : "0");
-                _ini.Set("zoom", DoubleValue(_zoom, 0.5, 2.0, 1.0).ToString("0.0", CultureInfo.InvariantCulture));
                 _ini.Set("icon", IconValues[Math.Max(0, ComboOf(_icon).SelectedIndex)]);
-                _ini.Set("closetotray", _tray.Checked ? "1" : "0");
+                _ini.Set("closeaction", CloseActionValues[Math.Max(0, ComboOf(_closeAction).SelectedIndex)]);
                 _ini.Set("telemetry", _telemetry.Checked ? "1" : "0");
                 _ini.Set("startupseconds", IntValue(_startup, 10, 900, 120).ToString(CultureInfo.InvariantCulture));
                 _ini.Save(App.IniPath);

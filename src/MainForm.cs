@@ -29,16 +29,10 @@ namespace DshDesktop
         private System.Windows.Forms.Timer _installWatch;
         private int _installPercent;
         private long _installBytesMax;
-        private Panel _bar;
-        private TextBox _address;
-        private Panel _addressCell;
-        private string _addressValue = "";
-        private bool _addressEditing;
-        private GlyphButton _back, _forward, _reload, _home, _zoomOut, _zoomIn;
-        private Label _zoomLabel;
         private System.Windows.Forms.Timer _selfTestTimer;
         private bool _finished;
         private bool _failureShown;
+        private bool _closePromptOpen;   // one close prompt at a time
         private NotifyIcon _tray;
         private bool _exiting;
         private FormWindowState _stateBeforeHide = FormWindowState.Normal;
@@ -88,11 +82,8 @@ namespace DshDesktop
             _chromeRight = _chromeLeft;
             ApplyChrome();
 
-            if (_s.CloseToTray && !_s.SelfTest) SetupTray();
+            if (!_s.SelfTest) SetupTray();
 
-            if (_s.Toolbar) BuildToolbar();
-            // Dock=Top stacks by z-order; the title bar has to stay above the bar.
-            if (_bar != null) { _bar.SendToBack(); _title.BringToFront(); }
 
             _splash = new Label();
             _splash.Dock = DockStyle.Fill;
@@ -121,7 +112,6 @@ namespace DshDesktop
             Shown += delegate
             {
                 FitToDesktop();
-                if (_bar != null) LayoutBar(_bar);
                 Launch();
             };
 
@@ -457,29 +447,6 @@ namespace DshDesktop
             {
                 _splash.BackColor = _chromeRight;
                 _splash.ForeColor = symbolLeft;
-            }
-            if (_bar != null)
-            {
-                _bar.BackColor = _dark ? Color.FromArgb(32, 33, 36) : Color.FromArgb(246, 247, 249);
-                if (_addressCell != null)
-                {
-                    _addressCell.BackColor = _dark ? Color.FromArgb(44, 46, 50) : Color.White;
-                    if (_address != null)
-                    {
-                        _address.BackColor = _addressCell.BackColor;
-                        _address.ForeColor = _dark ? Color.FromArgb(238, 241, 245) : Color.FromArgb(27, 29, 34);
-                        if (_addressCell != null) _addressCell.Invalidate();
-                        App.Log("bar theme: cell=" + _addressCell.BackColor + " box=" + _address.BackColor
-                            + " visible=" + _address.Visible + " bounds=" + _address.Bounds
-                            + " cellBounds=" + _addressCell.Bounds + " bar=" + _bar.BackColor + " dark=" + _dark);
-                    }
-                }
-                foreach (Control control in _bar.Controls)
-                {
-                    control.ForeColor = symbolControls;
-                    GlyphButton glyph = control as GlyphButton;
-                    if (glyph != null) glyph.SetTheme(_dark, symbolControls);
-                }
             }
             Invalidate();
             // The caption mark follows the page's light/dark, so it always contrasts with the
@@ -920,104 +887,6 @@ namespace DshDesktop
             BeginInvoke((MethodInvoker)delegate { BeginInit(); });
         }
 
-        private void BuildToolbar()
-        {
-            _bar = new Panel();
-            _bar.Dock = DockStyle.Top;
-            _bar.Height = S(40);
-            _bar.BackColor = Color.FromArgb(246, 247, 249);
-            Controls.Add(_bar);
-
-            _back = MakeButton("\u2190", "Alt+Left");
-            _forward = MakeButton("\u2192", "Alt+Right");
-            _reload = MakeButton("\u27F3", "F5");
-            _home = MakeButton("\u2302", "Home");
-            _zoomOut = MakeButton("\u2212", "Ctrl+-");
-            _zoomIn = MakeButton("+", "Ctrl++");
-
-            _back.Click += delegate { GoBack(); };
-            _forward.Click += delegate { GoForward(); };
-            _reload.Click += delegate { Reload(); };
-            _home.Click += delegate { Navigate(ResolveOwner()); };
-            _zoomOut.Click += delegate { SetZoom(-0.1); };
-            _zoomIn.Click += delegate { SetZoom(0.1); };
-
-            // The address field sits in a rounded cell like the settings inputs.
-            _addressCell = new Panel();
-            _addressCell.BackColor = Color.White;
-            _addressCell.Paint += delegate(object sender, PaintEventArgs e)
-            {
-                Graphics g = e.Graphics;
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                // Clear with the bar colour and fill only inside the rounded shape:
-                // a square panel background under a rounded border showed as a
-                // second box around the address field.
-                if (_bar != null)
-                {
-                    using (SolidBrush back = new SolidBrush(_bar.BackColor))
-                        g.FillRectangle(back, _addressCell.ClientRectangle);
-                }
-                Rectangle r = new Rectangle(0, 0, _addressCell.ClientSize.Width - 1, _addressCell.ClientSize.Height - 1);
-                using (GraphicsPath path = Theme.Rounded(r, S(8)))
-                {
-                    using (SolidBrush fill = new SolidBrush(_addressCell.BackColor))
-                        g.FillPath(fill, path);
-                    // The URL is drawn here, inside the rounded shape: a child control
-                    // would have square corners to show at the ends of the field.
-                    if (!_addressEditing && _address != null && !_address.Visible)
-                    {
-                        Rectangle textArea = new Rectangle(S(11), 0, _addressCell.ClientSize.Width - S(22), _addressCell.ClientSize.Height);
-                        TextRenderer.DrawText(g, _addressValue ?? "", _address.Font, textArea,
-                            _dark ? Color.FromArgb(238, 241, 245) : Color.FromArgb(27, 29, 34),
-                            TextFormatFlags.Left | TextFormatFlags.VerticalCenter
-                            | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
-                            | TextFormatFlags.NoPrefix);
-                    }
-                    using (Pen pen = new Pen(_dark ? Color.FromArgb(74, 77, 84) : Color.FromArgb(216, 221, 229)))
-                        g.DrawPath(pen, path);
-                }
-            };
-
-            _addressCell.Cursor = Cursors.IBeam;
-            _addressCell.Click += delegate { BeginAddressEdit(); };
-
-            _address = new TextBox();
-            _address.BorderStyle = BorderStyle.None;
-            _address.BackColor = _addressCell.BackColor;
-            _address.ForeColor = _dark ? Color.FromArgb(238, 241, 245) : Color.FromArgb(27, 29, 34);
-            _address.Visible = false;
-            _address.Leave += delegate { EndAddressEdit(); };
-            _address.Font = new Font("Microsoft YaHei UI", 9f);
-            _address.BackColor = Color.White;
-            _address.KeyDown += delegate(object sender, KeyEventArgs e)
-            {
-                if (e.KeyCode == Keys.Enter)
-                {
-                    e.SuppressKeyPress = true;
-                    Navigate(_address.Text.Trim());
-                }
-            };
-
-            _zoomLabel = new Label();
-            _zoomLabel.Text = "100%";
-            _zoomLabel.TextAlign = ContentAlignment.MiddleCenter;
-            _zoomLabel.Font = new Font("Segoe UI", 8.5f);
-            _zoomLabel.BackColor = Color.Transparent;
-
-            _bar.Controls.Add(_back);
-            _bar.Controls.Add(_forward);
-            _bar.Controls.Add(_reload);
-            _bar.Controls.Add(_home);
-            _bar.Controls.Add(_addressCell);
-            _bar.Controls.Add(_zoomOut);
-            _bar.Controls.Add(_zoomLabel);
-            _bar.Controls.Add(_zoomIn);
-            _bar.Resize += delegate { LayoutBar(_bar); };
-            App.Log("bar built: cell=" + _addressCell.BackColor + " box=" + _address.BackColor
-                + " boxVisible=" + _address.Visible + " boxBounds=" + _address.Bounds
-                + " cellBounds=" + _addressCell.Bounds + " bar=" + _bar.BackColor);
-        }
-
         // The tray icon keeps the process alive with no window and no taskbar
         // button (a hidden top-level window drops out of the taskbar by itself,
         // so ShowInTaskbar is left alone -- toggling it would recreate the HWND
@@ -1029,12 +898,25 @@ namespace DshDesktop
             {
                 if (!System.IO.File.Exists(App.IniPath)) return;
                 IniFile file = IniFile.Load(App.IniPath);
-                bool had = file.Get("ui", null) != null || file.Get("theme", null) != null;
-                if (!had) return;
-                file.Remove("ui");
-                file.Remove("theme");
+                // ui/theme disappeared in an earlier release; toolbar/zoom are gone now that the
+                // address bar and the initial-zoom setting have been removed.
+                string[] retired = new string[] { "ui", "theme", "toolbar", "zoom" };
+                bool changed = false;
+                foreach (string key in retired)
+                {
+                    if (file.Get(key, null) != null) { file.Remove(key); changed = true; }
+                }
+                // closetotray became closeaction; persist the migration so the value is not
+                // re-interpreted (and re-written) on every launch.
+                if (file.Get("closeaction", null) == null && file.Get("closetotray", null) != null)
+                {
+                    file.Set("closeaction", _s.CloseAction);
+                    file.Remove("closetotray");
+                    changed = true;
+                }
+                if (!changed) return;
                 file.Save(App.IniPath);
-                App.Log("removed retired ini keys (ui, theme)");
+                App.Log("removed retired ini keys (ui, theme, toolbar, zoom; closetotray -> closeaction)");
             }
             catch (Exception ex) { App.Log("ini cleanup failed: " + ex.Message); }
         }
@@ -1326,18 +1208,39 @@ namespace DshDesktop
         {
             SaveLayout();
 
-            if (!_exiting && _s.CloseToTray && e.CloseReason == CloseReason.UserClosing)
+            if (!_exiting && e.CloseReason == CloseReason.UserClosing)
             {
-                e.Cancel = true;
-                // Hide on the next message-loop turn, never from inside this handler.
-                // Cancelling the close makes WinForms put the form back into its visible
-                // state after the closing sequence, which silently undid a Hide() called
-                // here: the window stayed on screen even though "hidden to tray" was
-                // logged (measured on Windows 11 - WS_VISIBLE was still set afterwards,
-                // and an outside SW_HIDE then worked immediately). Deferring runs the
-                // hide after that restore, so the first click really hides.
-                BeginInvoke((Action)HideToTray);
-                return;
+                if (_s.CloseAction == "tray")
+                {
+                    e.Cancel = true;
+                    // Hide on the next message-loop turn, never from inside this handler.
+                    // Cancelling the close makes WinForms put the form back into its visible
+                    // state after the closing sequence, which silently undid a Hide() called
+                    // here: the window stayed on screen even though "hidden to tray" was
+                    // logged (measured on Windows 11 - WS_VISIBLE was still set afterwards,
+                    // and an outside SW_HIDE then worked immediately). Deferring runs the
+                    // hide after that restore, so the first click really hides.
+                    BeginInvoke((Action)HideToTray);
+                    return;
+                }
+                if (_s.CloseAction == "quit")
+                {
+                    App.Log("closing: closeaction=quit");
+                    // Fall through and let the window close.
+                }
+                else
+                {
+                    // closeaction=ask: the prompt is posted to the message loop rather than
+                    // opened here, because a modal dialog from inside the closing handler
+                    // blocks a form that is already tearing down.
+                    e.Cancel = true;
+                    if (!_closePromptOpen)
+                    {
+                        _closePromptOpen = true;
+                        BeginInvoke((Action)AskCloseChoice);
+                    }
+                    return;
+                }
             }
 
             if (_tray != null)
@@ -1354,58 +1257,57 @@ namespace DshDesktop
             }
         }
 
-        private GlyphButton MakeButton(string text, string tip)
+        // Asks what this close should do. Only an explicit "quit" ends the process; the dialog's
+        // X, Esc and Cancel all leave the window open.
+        private void AskCloseChoice()
         {
-            return new GlyphButton(text, tip, S(1));
+            try
+            {
+                DialogResult choice;
+                bool remember;
+                using (CloseDialog dialog = new CloseDialog(_theme ?? Theme.FromPage(_dark, _chromeRight)))
+                {
+                    SetPageDim(true);
+                    try { choice = dialog.ShowDialog(this); }
+                    finally { SetPageDim(false); }
+                    remember = dialog.RememberChoice;
+                }
+                App.Log("close prompt: " + choice + (remember ? " (remembered)" : ""));
+
+                if (choice == DialogResult.Yes)
+                {
+                    if (remember) RememberCloseAction("tray");
+                    HideToTray();
+                    return;
+                }
+                if (choice == DialogResult.No)
+                {
+                    if (remember) RememberCloseAction("quit");
+                    App.Log("exit requested from close prompt");
+                    ExitFromTray();
+                }
+            }
+            finally
+            {
+                _closePromptOpen = false;
+            }
         }
 
-        private void BeginAddressEdit()
+        // Applies the choice for this session immediately and remembers it for the next launch.
+        // A read-only ini still gets the in-memory behaviour.
+        private void RememberCloseAction(string action)
         {
-            if (_address == null) return;
-            _address.Text = _addressValue ?? "";
-            _addressEditing = true;
-            _addressCell.Controls.Add(_address);
-            _address.Visible = true;
-            _address.Focus();
-            _address.SelectAll();
-            if (_addressCell != null) _addressCell.Invalidate();
-        }
-
-        private void EndAddressEdit()
-        {
-            if (_address == null) return;
-            _addressValue = _address.Text;
-            _addressEditing = false;
-            _address.Visible = false;
-            _addressCell.Controls.Remove(_address);
-            if (_addressCell != null) _addressCell.Invalidate();
-        }
-
-        private void LayoutBar(Panel bar)
-        {
-            int h = S(28), top = S(6), x = S(6);
-            int right = bar.Width - S(6);
-            if (right < S(500)) return;
-
-            int zoomInX = right - S(32);
-            int zoomLabelX = zoomInX - S(46);
-            int zoomOutX = zoomLabelX - S(32);
-
-            _back.SetBounds(x, top, S(32), h); x += S(34);
-            _forward.SetBounds(x, top, S(32), h); x += S(34);
-            _reload.SetBounds(x, top, S(32), h); x += S(34);
-            _home.SetBounds(x, top, S(32), h); x += S(40);
-
-            int width = zoomOutX - x - S(8);
-            if (width < S(80)) width = S(80);
-            int limit = bar.Width - x - S(8);
-            if (limit > S(80) && width > limit) width = limit;
-            _addressCell.SetBounds(x, top, width, h);
-            _address.SetBounds(S(11), S(5), width - S(22), h - S(10));
-
-            _zoomOut.SetBounds(zoomOutX, top, S(32), h);
-            _zoomLabel.SetBounds(zoomLabelX, top, S(46), h);
-            _zoomIn.SetBounds(zoomInX, top, S(32), h);
+            _s.CloseAction = action;
+            try
+            {
+                IniFile file;
+                try { file = IniFile.Load(App.IniPath); }
+                catch { file = IniFile.Empty(); }
+                file.Set("closeaction", action);
+                file.Save(App.IniPath);
+                App.Log("closeaction=" + action + " saved");
+            }
+            catch (Exception ex) { App.Log("closeaction=" + action + " not saved: " + ex.Message); }
         }
 
         private string ResolveOwner()
@@ -1525,44 +1427,17 @@ namespace DshDesktop
             core.Settings.AreBrowserAcceleratorKeysEnabled = true;
             core.Settings.IsPasswordAutosaveEnabled = false;
 
-            core.NavigationStarting += delegate(object sender, CoreWebView2NavigationStartingEventArgs e)
-            {
-                if (_address != null) _address.Text = e.Uri;
-                if (!_addressEditing)
-                {
-                    _addressValue = e.Uri;
-                    if (_addressCell != null) _addressCell.Invalidate();
-                }
-                if (_reload != null) _reload.Text = "\u2715";
-            };
             core.NavigationCompleted += delegate(object sender, CoreWebView2NavigationCompletedEventArgs e)
             {
                 SyncThemeFromPage();
-                if (_reload != null) _reload.Text = "\u27F3";
-                if (_back != null) _back.Enabled = core.CanGoBack;
-                if (_forward != null) _forward.Enabled = core.CanGoForward;
-                try
-                {
-                    if (_address != null) _address.Text = core.Source;
-                    if (!_addressEditing)
-                    {
-                        _addressValue = core.Source;
-                        if (_addressCell != null) _addressCell.Invalidate();
-                        App.Log("bar theme: cell=" + _addressCell.BackColor + " box=" + _address.BackColor
-                            + " visible=" + _address.Visible + " bounds=" + _address.Bounds
-                            + " cellBounds=" + _addressCell.Bounds + " bar=" + _bar.BackColor + " dark=" + _dark);
-                    }
-                }
-                catch { }
                 App.Log("nav " + (e.IsSuccess ? "ok" : "fail:" + e.WebErrorStatus) + " " + (core.Source ?? ""));
                 if (e.IsSuccess)
                 {
-                    // The bar sits above the page rather than over it, so the page
-                    // is deliberately left without the data-windows-titlebar
-                    // contract: setting it would reserve a second strip at its top.
+                    // The page is deliberately left without the data-windows-titlebar contract:
+                    // setting it would reserve a second strip at its top, under our own caption.
                     SyncThemeFromPage();
                     StartThemeWatch();
-            StartThemeFileWatch(System.IO.Path.Combine(App.ResolveDir(_s.Data, "data"), "profiles"));
+                    StartThemeFileWatch(System.IO.Path.Combine(App.ResolveDir(_s.Data, "data"), "profiles"));
                     if (_s.ProbeTheme) ProbeThemeWatch();
                 }
                 if (!e.IsSuccess && !_s.SelfTest) ShowLoadFailure(e.WebErrorStatus);
@@ -1570,11 +1445,8 @@ namespace DshDesktop
             };
             core.DocumentTitleChanged += delegate
             {
-                if (_s.Toolbar)
-                {
-                    string t = string.IsNullOrWhiteSpace(core.DocumentTitle) ? "DSH Desktop" : core.DocumentTitle;
-                    Text = t + " \u2014 DSH Desktop";
-                }
+                string t = string.IsNullOrWhiteSpace(core.DocumentTitle) ? "DSH Desktop" : core.DocumentTitle;
+                Text = t + " \u2014 DSH Desktop";
             };
             core.PermissionRequested += delegate(object sender, CoreWebView2PermissionRequestedEventArgs e)
             {
@@ -1619,11 +1491,6 @@ namespace DshDesktop
                         "DSH Desktop", MessageBoxButtons.OK, MessageBoxIcon.Error);
             };
 
-            if (_s.Zoom > 0.3 && _s.Zoom < 3.0)
-            {
-                _view.ZoomFactor = _s.Zoom;
-                if (_zoomLabel != null) _zoomLabel.Text = Math.Round(_s.Zoom * 100).ToString(CultureInfo.InvariantCulture) + "%";
-            }
 
             if (_splash != null) { Controls.Remove(_splash); _splash.Dispose(); _splash = null; }
 
@@ -1781,7 +1648,6 @@ namespace DshDesktop
             else if (e.Control && e.KeyCode == Keys.D0) { SetZoomAbsolute(1.0); e.SuppressKeyPress = true; }
             else if (e.KeyCode == Keys.F5) { Reload(); e.SuppressKeyPress = true; }
             else if (e.KeyCode == Keys.F12) { OpenDevTools(); e.SuppressKeyPress = true; }
-            else if (_address != null && e.Control && e.KeyCode == Keys.L) { _address.Focus(); _address.SelectAll(); e.SuppressKeyPress = true; }
         }
 
         // DSH dims and desaturates the page behind its own modal panels. Our
@@ -2102,14 +1968,12 @@ namespace DshDesktop
             if (z < 0.5) z = 0.5;
             if (z > 2.0) z = 2.0;
             _view.ZoomFactor = z;
-            if (_zoomLabel != null) _zoomLabel.Text = Math.Round(z * 100).ToString(CultureInfo.InvariantCulture) + "%";
         }
 
         private void SetZoomAbsolute(double z)
         {
             if (_view == null) return;
             _view.ZoomFactor = z;
-            if (_zoomLabel != null) _zoomLabel.Text = Math.Round(z * 100).ToString(CultureInfo.InvariantCulture) + "%";
         }
 
         private static string StateFile()
