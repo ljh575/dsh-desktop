@@ -117,47 +117,25 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 -Variant dsh -WithWebView2 
 
 两种改法等价：齿轮（`Ctrl+,`）里的**设置菜单**，或直接编辑 `dsh-desktop.ini`。菜单写回同一份文件，注释不丢。
 
-| 键 | 默认 | 说明 |
-|---|---|---|
-| `server` | `1` | `1` 启动内置 `dsh web`；`0` 只作客户端，必须填 `url` |
-| `url` | `http://127.0.0.1:3080/` | `server=0` 时要连的地址，首次可带 `?token=` |
-| `host` | `127.0.0.1` | 监听地址（`server=1`） |
-| `port` | `0` | 监听端口；`0` 每次自动挑空闲端口 |
-| `workspace` | `workspace` | 智能体工作区根目录 |
-| `data` | `data` | DSH_HOME（配置/密钥/会话/插件） |
-| `profile` | `profile` | 浏览器数据目录 |
-| `runtime` | `runtime` | Node 运行时目录 |
-| `app` | `app` | 内置 dsh 目录 |
-| `args` | 空 | 追加给 `dsh web` 的参数 |
-| `icon` | `default` | `default` 官方图标 / `auto` 跟随系统主题 / `light` 黑鲸 / `dark` 白鲸 |
-| `closeaction` | `ask` | 点关闭按钮时：`ask` 每次询问 / `tray` 最小化到托盘 / `quit` 直接退出 |
-| `telemetry` | `0` | 是否上报匿名使用统计 |
-| `startupseconds` | `120` | 等服务的超时秒数 |
+| 键 | 默认 | 等价的命令行参数 | 说明 |
+|---|---|---|---|
+| `server` | `1` | `--server=0` / `=1`、`--client` | `1` 启动内置 `dsh web`；`0` 只作客户端，必须填 `url` |
+| `url` | `http://127.0.0.1:3080/` | `--url=<地址>` | `server=0` 时要连的地址，首次可带 `?token=` |
+| `host` | `127.0.0.1` | `--host=<地址>` | 监听地址（`server=1`） |
+| `port` | `0` | `--port=<端口>` | 监听端口；`0` 每次自动挑空闲端口 |
+| `workspace` | `workspace` | `--workspace=<目录>` | 智能体工作区根目录 |
+| `data` | `data` | `--data=<目录>` | DSH_HOME（配置/密钥/会话/插件） |
+| `profile` | `profile` | `--profile=<目录>` | 浏览器数据目录 |
+| `runtime` | `runtime` | `--runtime=<目录>` | Node 运行时目录 |
+| `app` | `app` | `--app=<目录>` | 内置 dsh 目录 |
+| `args` | 空 | `--args="<参数>"` | 追加给 `dsh web` 的参数 |
+| `icon` | `default` | `--icon=<样式>` | `default` 官方图标 / `auto` 跟随系统主题 / `light` 黑鲸 / `dark` 白鲸 |
+| `closeaction` | `ask` | `--closeaction=ask` / `=tray` / `=quit` | 点关闭按钮时：`ask` 每次询问 / `tray` 最小化到托盘 / `quit` 直接退出；旧的 `closetotray=1` 等同 `tray` |
+| `webview2version` | `157.0.4341.46` | `--webview2version=<版本>` | 本机没有 WebView2、目录里也没有 `webview2\` 时，下载这个版本。有系统运行时时不生效 |
+| `telemetry` | `0` | `--telemetry=0` / `=1` | 是否上报匿名使用统计 |
+| `startupseconds` | `120` | `--startupseconds=<秒>` | 等服务的超时秒数 |
 
-相对路径都相对 exe 所在目录；文件缺失会自动重建。
-
-### 命令行
-
-每个 ini 键都有等价参数（命令行优先于 ini），适合脚本、快捷方式或临时试参数：
-
-| 参数 | 等价的 ini 键 | 说明 |
-|---|---|---|
-| `--server=0` / `--server=1` | `server` | 关掉或打开内置服务 |
-| `--client` | `server=0` | 同上，写法更短的开关 |
-| `--url=<地址>` | `url` | 客户端模式要连的地址 |
-| `--host=<地址>` | `host` | 监听地址 |
-| `--port=<端口>` | `port` | 监听端口，`0` 为自动 |
-| `--workspace=<目录>` | `workspace` | 工作区根目录 |
-| `--data=<目录>` | `data` | DSH_HOME |
-| `--profile=<目录>` | `profile` | 浏览器数据目录 |
-| `--runtime=<目录>` | `runtime` | Node 运行时目录 |
-| `--app=<目录>` | `app` | 内置 dsh 目录 |
-| `--args="<参数>"` | `args` | 追加给 `dsh web` |
-| `--icon=<样式>` | `icon` | `default` 官方图标 / `auto` 跟随系统主题 / `light` 黑鲸 / `dark` 白鲸 |
-| `--closeaction=ask` / `=tray` / `=quit` | `closeaction` | 关闭按钮行为；旧的 `--closetotray=1` 仍被识别为 `tray` |
-| `--webview2version=<版本>` | `webview2version` | 临时指定要下载的 WebView2 版本 |
-| `--telemetry=0` / `=1` | `telemetry` | 匿名统计 |
-| `--startupseconds=<秒>` | `startupseconds` | 启动超时 |
+命令行优先于 ini，适合脚本、快捷方式或临时试参数。相对路径都相对 exe 所在目录；文件缺失会自动重建。
 
 工具型参数（不改配置）：
 

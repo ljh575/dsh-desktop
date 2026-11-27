@@ -117,47 +117,25 @@ Pass `-Full` to skip all pruning.
 
 Both routes are equivalent: the **settings menu** (gear, `Ctrl+,`) or editing `dsh-desktop.ini` directly. The menu writes the same file back and keeps its comments.
 
-| Key | Default | Meaning |
-|---|---|---|
-| `server` | `1` | `1` starts the bundled `dsh web`; `0` is client only and requires `url` |
-| `url` | `http://127.0.0.1:3080/` | Address used when `server=0`; may carry `?token=` the first time |
-| `host` | `127.0.0.1` | Listen address (server mode) |
-| `port` | `0` | Listen port; `0` picks a free port on every launch |
-| `workspace` | `workspace` | Agent workspace root |
-| `data` | `data` | DSH_HOME (settings, credentials, sessions, plugins) |
-| `profile` | `profile` | Browser data directory |
-| `runtime` | `runtime` | Node runtime directory |
-| `app` | `app` | Bundled dsh directory |
-| `args` | empty | Extra arguments for `dsh web` |
-| `icon` | `default` | `default` Official artwork / `auto` Follow system theme / `light` Dark whale / `dark` White whale |
-| `closeaction` | `ask` | What the close button does: `ask` prompt / `tray` minimise to tray / `quit` exit |
-| `telemetry` | `0` | Send anonymous usage telemetry |
-| `startupseconds` | `120` | Seconds to wait for the server |
+| Key | Default | Equivalent argument | Meaning |
+|---|---|---|---|
+| `server` | `1` | `--server=0` / `=1`, `--client` | `1` starts the bundled `dsh web`; `0` is client only and requires `url` |
+| `url` | `http://127.0.0.1:3080/` | `--url=<address>` | Address used when `server=0`; may carry `?token=` the first time |
+| `host` | `127.0.0.1` | `--host=<address>` | Listen address (server mode) |
+| `port` | `0` | `--port=<port>` | Listen port; `0` picks a free port on every launch |
+| `workspace` | `workspace` | `--workspace=<dir>` | Agent workspace root |
+| `data` | `data` | `--data=<dir>` | DSH_HOME (settings, credentials, sessions, plugins) |
+| `profile` | `profile` | `--profile=<dir>` | Browser data directory |
+| `runtime` | `runtime` | `--runtime=<dir>` | Node runtime directory |
+| `app` | `app` | `--app=<dir>` | Bundled dsh directory |
+| `args` | empty | `--args="<args>"` | Extra arguments for `dsh web` |
+| `icon` | `default` | `--icon=<style>` | `default` Official artwork / `auto` Follow system theme / `light` Dark whale / `dark` White whale |
+| `closeaction` | `ask` | `--closeaction=ask` / `=tray` / `=quit` | What the close button does: `ask` prompt / `tray` minimise to tray / `quit` exit; a legacy `closetotray=1` means `tray` |
+| `webview2version` | `157.0.4341.46` | `--webview2version=<version>` | Version to download when the machine has none and this folder has no `webview2\`. The installed runtime always wins |
+| `telemetry` | `0` | `--telemetry=0` / `=1` | Send anonymous usage telemetry |
+| `startupseconds` | `120` | `--startupseconds=<n>` | Seconds to wait for the server |
 
-Relative paths resolve against the executable's folder; a deleted file is recreated.
-
-### Command line
-
-Every ini key has an equivalent argument (the command line wins over the file), which is handy for scripts, shortcuts or trying a value once:
-
-| Argument | ini key | Meaning |
-|---|---|---|
-| `--server=0` / `--server=1` | `server` | Turn the bundled server off or on |
-| `--client` | `server=0` | The same, as a short switch |
-| `--url=<address>` | `url` | Address used in client mode |
-| `--host=<address>` | `host` | Listen address |
-| `--port=<port>` | `port` | Listen port, `0` for automatic |
-| `--workspace=<dir>` | `workspace` | Workspace root |
-| `--data=<dir>` | `data` | DSH_HOME |
-| `--profile=<dir>` | `profile` | Browser data directory |
-| `--runtime=<dir>` | `runtime` | Node runtime directory |
-| `--app=<dir>` | `app` | Bundled dsh directory |
-| `--args="<args>"` | `args` | Extra arguments for `dsh web` |
-| `--icon=<style>` | `icon` | `default` Official artwork / `auto` Follow system theme / `light` Dark whale / `dark` White whale |
-| `--closeaction=ask` / `=tray` / `=quit` | `closeaction` | Close button behaviour; a legacy `--closetotray=1` still means `tray` |
-| `--webview2version=<version>` | `webview2version` | Version to download for this launch |
-| `--telemetry=0` / `=1` | `telemetry` | Anonymous usage telemetry |
-| `--startupseconds=<n>` | `startupseconds` | Startup timeout |
+The command line wins over the file, which is handy for scripts, shortcuts or trying a value once. Relative paths resolve against the executable's folder; a deleted file is recreated.
 
 Utility arguments (they do not change the configuration):
 
