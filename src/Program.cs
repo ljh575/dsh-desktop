@@ -368,23 +368,25 @@ namespace DshDesktop
             sb.AppendLine("# 追加给 dsh web 的参数，通常留空。");
             sb.AppendLine("args=");
             sb.AppendLine();
-            sb.AppendLine();
-            sb.AppendLine();
             sb.AppendLine("# Icon style / 图标样式: default | auto | light | dark");
+            sb.AppendLine("#   default = Official artwork / 官方图标（默认）");
+            sb.AppendLine("#   auto    = Follow system theme / 跟随系统主题");
+            sb.AppendLine("#   light   = Dark whale / 黑鲸");
+            sb.AppendLine("#   dark    = White whale / 白鲸");
             sb.AppendLine("icon=default");
-
-            sb.AppendLine();
-
-
             sb.AppendLine();
             sb.AppendLine("# WebView2 version to download when the machine has none, or when this");
             sb.AppendLine("# folder has no webview2\\ yet. The installed runtime is always preferred.");
             sb.AppendLine("# 本机没有 WebView2 且目录里也没有时，下载这个固定版本；有系统运行时就优先用系统。");
             sb.AppendLine("webview2version=" + WebViewRuntime.DefaultVersion);
             sb.AppendLine();
-            sb.AppendLine("# Close button: ask = prompt every time (default), tray = minimize to the");
-            sb.AppendLine("# notification area, quit = stop the server and exit.");
-            sb.AppendLine("# 关闭按钮：ask = 每次询问（默认），tray = 最小化到托盘，quit = 停止服务并退出。");
+            sb.AppendLine("# Close button / 关闭按钮:");
+            sb.AppendLine("#   ask  = prompt every time (default) / 每次询问（默认）");
+            sb.AppendLine("#   tray = minimize to the notification area, the session keeps running");
+            sb.AppendLine("#          最小化到托盘，服务继续运行");
+            sb.AppendLine("#   quit = stop the server and exit / 停止服务并退出");
+            sb.AppendLine("# An older closetotray=1 still means tray and is migrated on launch.");
+            sb.AppendLine("# 旧的 closetotray=1 仍等同 tray，首次启动会自动改写。");
             sb.AppendLine("closeaction=ask");
             sb.AppendLine();
             sb.AppendLine("# Send anonymous usage telemetry to DeepSeek: 0 = off (default) / 1 = on");

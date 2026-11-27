@@ -6,6 +6,6 @@ using System.Reflection;
 [assembly: AssemblyProduct("DSH Desktop")]
 [assembly: AssemblyCompany("ljh575")]
 [assembly: AssemblyCopyright("Copyright © 2026 ljh575")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
 [assembly: AssemblyInformationalVersion("1.0.0")]

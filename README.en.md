@@ -2,7 +2,7 @@
 
 > The [DeepSeek Harness](https://github.com/deepseek-ai) web UI in one folder: the Node runtime travels with it and **dsh is downloaded on first launch**, so double-clicking `dsh-desktop.exe` is enough. The target machine needs no Node.js, no administrator rights, and nothing is written to the registry.
 
-English | [中文](README.md) · version **1.0.0**
+English | [中文](README.md) · version **1.1.0**
 
 ## What it is
 
@@ -129,11 +129,8 @@ Both routes are equivalent: the **settings menu** (gear, `Ctrl+,`) or editing `d
 | `runtime` | `runtime` | Node runtime directory |
 | `app` | `app` | Bundled dsh directory |
 | `args` | empty | Extra arguments for `dsh web` |
-| `toolbar` | `0` | `1` shows the address bar, back/forward and zoom |
-| `zoom` | `1.0` | Initial zoom factor |
-| `icon` | `default` | `default` / `auto` / `light` / `dark` |
-| `webview2version` | `157.0.4341.46` | Version downloaded when the machine has no runtime and the folder has no `webview2\`. Ignored when a system runtime exists |
-| `closetotray` | `0` | `1` = the close button minimises to tray (the server keeps running) |
+| `icon` | `default` | `default` Official artwork / `auto` Follow system theme / `light` Dark whale / `dark` White whale |
+| `closeaction` | `ask` | What the close button does: `ask` prompt / `tray` minimise to tray / `quit` exit |
 | `telemetry` | `0` | Send anonymous usage telemetry |
 | `startupseconds` | `120` | Seconds to wait for the server |
 
@@ -156,11 +153,9 @@ Every ini key has an equivalent argument (the command line wins over the file), 
 | `--runtime=<dir>` | `runtime` | Node runtime directory |
 | `--app=<dir>` | `app` | Bundled dsh directory |
 | `--args="<args>"` | `args` | Extra arguments for `dsh web` |
-| `--toolbar` / `--toolbar=0` | `toolbar` | Show or hide the address bar |
-| `--zoom=<factor>` | `zoom` | Initial zoom, e.g. `--zoom=1.2` |
-| `--icon=<style>` | `icon` | `default` / `auto` / `light` / `dark` |
+| `--icon=<style>` | `icon` | `default` Official artwork / `auto` Follow system theme / `light` Dark whale / `dark` White whale |
+| `--closeaction=ask` / `=tray` / `=quit` | `closeaction` | Close button behaviour; a legacy `--closetotray=1` still means `tray` |
 | `--webview2version=<version>` | `webview2version` | Version to download for this launch |
-| `--closetotray=0` / `=1` | `closetotray` | What the close button does |
 | `--telemetry=0` / `=1` | `telemetry` | Anonymous usage telemetry |
 | `--startupseconds=<n>` | `startupseconds` | Startup timeout |
 
@@ -177,10 +172,10 @@ Each launch writes one `config: ...` line to the log with every resolved value a
 
 ## The interface
 
-- **Settings** (gear / `Ctrl+,`): Startup (server switch, address, listen, port, timeout), Appearance (icon, zoom, address bar, tray), Folders, Advanced (extra arguments, telemetry). "Save and restart" applies immediately
+- **Settings** (gear / `Ctrl+,`): Startup (server switch, address, listen, port, timeout), Appearance (icon, close button), folders, Advanced (extra args, telemetry). Save and restart applies it
 - **`⋯` menu**: settings, check dsh updates, open in browser, copy address, developer tools, open workspace / data folder / config file, about
-- **Tray menu** (with `closetotray=1`): show window, settings, about, quit
-- **About**: launcher version, dsh version, Node, WebView2, mode, address, folders, log path, with a copy button
+- **Tray menu**: show window, settings, about, quit (the tray icon always exists; with `closeaction=tray` or `ask` a hidden window is restored from here)
+- **About**: launcher version, dsh version, Node, WebView2, mode, address, folders, log location and the project URL, with a copy button
 
 ## Updating dsh
 
@@ -198,12 +193,12 @@ From a script: `dsh-desktop.exe --update-dsh=0.2.2-rc.3` (runs and exits).
 
 | Value | Preview | Meaning |
 |---|---|---|
-| `default` | ![default](docs/ic-default.png) | Official DSH artwork (rounded backdrop + whale), the default |
-| `auto` | ![auto](docs/ic-auto.png) | Follow the system: dark whale on light, white on dark |
-| `light` | ![light](docs/ic-light.png) | Always the dark whale, for light bars |
-| `dark` | ![dark](docs/ic-dark.png) | Always the white whale, for dark bars |
+| Official artwork (`default`) | ![default](docs/ic-default.png) | DSH's official artwork (rounded tile + whale), the default |
+| Follow system theme (`auto`) | ![auto](docs/ic-auto.png) | Dark whale on a light system, white whale on a dark one |
+| Dark whale (`light`) | ![light](docs/ic-light.png) | Always the dark whale, suits a light background |
+| White whale (`dark`) | ![dark](docs/ic-dark.png) | Always the white whale, suits a dark background |
 
-The executable's static file icon is always `default`; only the window and taskbar icon follow the setting.
+The executable's static file icon is always the official artwork; the window and taskbar icon follow the setting. The caption whale is separate: it switches with the page's own light/dark (white whale on a dark page, dark whale on a light one) and ignores this setting.
 
 ## About this project
 

@@ -2,7 +2,7 @@
 
 > 把 [DeepSeek Harness](https://github.com/deepseek-ai) 的网页版装进一个文件夹：自带 Node 运行时，**dsh 在首次启动时自动下载**，双击 `dsh-desktop.exe` 即可使用。目标机不需要装 Node、不需要管理员权限，也不写注册表。
 
-[English](README.en.md) | 中文 · 当前版本 **1.0.0**
+[English](README.en.md) | 中文 · 当前版本 **1.1.0**
 
 ## 这是什么
 
@@ -129,11 +129,8 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 -Variant dsh -WithWebView2 
 | `runtime` | `runtime` | Node 运行时目录 |
 | `app` | `app` | 内置 dsh 目录 |
 | `args` | 空 | 追加给 `dsh web` 的参数 |
-| `toolbar` | `0` | `1` 显示地址栏与前进/后退/缩放 |
-| `zoom` | `1.0` | 初始缩放 |
-| `icon` | `default` | `default` / `auto` / `light` / `dark` |
-| `webview2version` | `157.0.4341.46` | 本机没有 WebView2、目录里也没有 `webview2\` 时，下载这个版本。有系统运行时时不生效 |
-| `closetotray` | `0` | `1` = 点关闭最小化到托盘（服务继续跑） |
+| `icon` | `default` | `default` 官方图标 / `auto` 跟随系统主题 / `light` 黑鲸 / `dark` 白鲸 |
+| `closeaction` | `ask` | 点关闭按钮时：`ask` 每次询问 / `tray` 最小化到托盘 / `quit` 直接退出 |
 | `telemetry` | `0` | 是否上报匿名使用统计 |
 | `startupseconds` | `120` | 等服务的超时秒数 |
 
@@ -156,11 +153,9 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 -Variant dsh -WithWebView2 
 | `--runtime=<目录>` | `runtime` | Node 运行时目录 |
 | `--app=<目录>` | `app` | 内置 dsh 目录 |
 | `--args="<参数>"` | `args` | 追加给 `dsh web` |
-| `--toolbar` / `--toolbar=0` | `toolbar` | 显示或隐藏地址栏 |
-| `--zoom=<倍数>` | `zoom` | 初始缩放，例如 `--zoom=1.2` |
-| `--icon=<样式>` | `icon` | `default` / `auto` / `light` / `dark` |
+| `--icon=<样式>` | `icon` | `default` 官方图标 / `auto` 跟随系统主题 / `light` 黑鲸 / `dark` 白鲸 |
+| `--closeaction=ask` / `=tray` / `=quit` | `closeaction` | 关闭按钮行为；旧的 `--closetotray=1` 仍被识别为 `tray` |
 | `--webview2version=<版本>` | `webview2version` | 临时指定要下载的 WebView2 版本 |
-| `--closetotray=0` / `=1` | `closetotray` | 关闭按钮行为 |
 | `--telemetry=0` / `=1` | `telemetry` | 匿名统计 |
 | `--startupseconds=<秒>` | `startupseconds` | 启动超时 |
 
@@ -177,10 +172,10 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 -Variant dsh -WithWebView2 
 
 ## 界面
 
-- **设置**（齿轮 / `Ctrl+,`）：启动（内置服务、地址、监听、端口、超时）、外观（图标、缩放、地址栏、托盘）、目录、高级（附加参数、统计）。改完点「保存并重启」立即生效
+- **设置**（齿轮 / `Ctrl+,`）：启动（内置服务、地址、监听、端口、超时）、外观（图标、关闭按钮）、目录、高级（附加参数、统计）。改完点「保存并重启」立即生效
 - **`⋯` 菜单**：设置、检查 dsh 更新、在浏览器中打开、复制地址、开发者工具、打开工作区/数据目录/配置文件、关于
-- **托盘菜单**（`closetotray=1`）：显示窗口、设置、关于、退出
-- **关于**：启动器版本、dsh 版本、Node、WebView2、模式、地址、目录、日志位置，可一键复制
+- **托盘菜单**：显示窗口、设置、关于、退出（托盘图标始终创建，`closeaction=tray/ask` 收起窗口后从这里恢复）
+- **关于**：启动器版本、dsh 版本、Node、WebView2、模式、地址、目录、日志位置、项目地址，可一键复制
 
 ## 更新 dsh
 
@@ -198,12 +193,12 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 -Variant dsh -WithWebView2 
 
 | 值 | 预览 | 说明 |
 |---|---|---|
-| `default` | ![default](docs/ic-default.png) | DSH 官方图标（圆角底 + 鲸鱼），默认 |
-| `auto` | ![auto](docs/ic-auto.png) | 跟随系统：浅色用黑鲸、深色用白鲸 |
-| `light` | ![light](docs/ic-light.png) | 始终黑鲸，适合浅色标题栏 |
-| `dark` | ![dark](docs/ic-dark.png) | 始终白鲸，适合深色标题栏 |
+| 官方图标 (`default`) | ![default](docs/ic-default.png) | DSH 官方图标（圆角底 + 鲸鱼），默认 |
+| 跟随系统主题 (`auto`) | ![auto](docs/ic-auto.png) | 跟随系统：浅色用黑鲸、深色用白鲸 |
+| 黑鲸 (`light`) | ![light](docs/ic-light.png) | 始终用黑鲸，适合浅色背景 |
+| 白鲸 (`dark`) | ![dark](docs/ic-dark.png) | 始终用白鲸，适合深色背景 |
 
-exe 的静态文件图标固定为 `default`；只有窗口/任务栏图标随设置变化。
+exe 的静态文件图标固定为官方图标；窗口/任务栏图标随设置变化。标题栏的鲸鱼另有一套规则：跟随页面明暗自动切换（深色页面白鲸、浅色页面黑鲸），不受这里的选择影响。
 
 ## 关于本项目
 
