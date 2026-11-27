@@ -43,9 +43,16 @@ namespace DshDesktop
         // what is drawn, so text is proportional to the S() layout on every monitor.
         // Design points are converted at 96 DPI (1pt = 96/72 px) and scaled by the window's
         // monitor scale.
-        private static float Px(float points, float scale)
+        internal static float Px(float points, float scale)
         {
             return Math.Max(1f, points * (96f / 72f) * (scale <= 0f ? 1f : scale));
+        }
+
+        // Same conversion for controls that live outside a dialog but still take a scale
+        // (the pill buttons and dropdown cells), so every piece of text uses one rule.
+        internal static Font UiFontFor(float points, float scale)
+        {
+            return new Font("Microsoft YaHei UI", Px(points, scale), FontStyle.Regular, GraphicsUnit.Pixel);
         }
 
         protected Font UiFont(float points)

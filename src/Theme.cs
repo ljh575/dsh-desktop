@@ -196,7 +196,9 @@ namespace DshDesktop
             _radius = NativeMethods.Windows11 ? (int)Math.Round(8 * _scale) : 0;
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint
                 | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
-            Font = new Font("Microsoft YaHei UI", 9f);
+            // Pixel-sized for the same reason as PillButton: the dropdown text must match the
+            // S()-scaled layout instead of whatever DC DPI GDI happens to use.
+            Font = DsDialog.UiFontFor(9f, scale);
             Cursor = Cursors.Hand;
             TabStop = true;
         }
@@ -350,7 +352,11 @@ namespace DshDesktop
                 | ControlStyles.Selectable, true);
             BackColor = Color.Transparent;
             ForeColor = textColor;
-            Font = new Font("Microsoft YaHei UI", 9f);
+            // Pixel-sized, not points: a point size renders differently depending on which DC
+            // DPI GDI picks (measured in a dpi=120 dialog: 9pt drew 31px, i.e. the system DPI
+            // of 192). The dialog lays out with S() from the monitor scale, so the font must be
+            // expressed the same way: design points -> pixels at 96 DPI -> monitor scale.
+            Font = DsDialog.UiFontFor(9f, scale);
             Cursor = Cursors.Hand;
             TabStop = true;
             _radius = NativeMethods.Windows11 ? (int)Math.Round(12 * (scale <= 0 ? 1f : scale)) : 0;
