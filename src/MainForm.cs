@@ -1047,13 +1047,18 @@ namespace DshDesktop
                 return NativeMethods.DefWindowProc(hwnd, msg, wParam, lParam);
             };
 
-        // Owner window for the tray menu. It must be created while this thread is in a
-        // PER-MONITOR-V2 context: a window's DPI awareness is fixed when it is created,
-        // and a native popup menu inherits its owner's awareness. Using the main form as
-        // the owner made the menu follow the MAIN window's monitor rather than the menu's
-        // own, which scaled both the menu and its coordinates (measured at 150%/125% with
-        // the window on the 125% monitor: menu came out at 686,603 and 0.83x the correct
-        // size instead of anchored at the cursor).
+        // Owner window for the tray menu. Two separate requirements drive its shape:
+        //
+        // 1. DPI: it must be created while this thread is in a PER-MONITOR-V2 context, because
+        //    a window's DPI awareness is fixed at creation and a native popup menu inherits its
+        //    owner's awareness. The main form as owner made the menu follow the MAIN window's
+        //    monitor (measured at 150%/125%: menu at 686,603, 0.83x size).
+        // 2. Closing on an outside click: a Win32 popup menu only sees the click that dismisses
+        //    it while its owner holds the FOREGROUND. Measured before this fix: with the menu
+        //    open the foreground was the WebView2 page (another process), so outside clicks went
+        //    there and the menu stayed up. A HIDDEN window cannot be made foreground, so the
+        //    owner is now a WS_POPUP + WS_EX_TOOLWINDOW window that is shown off-screen: it can
+        //    hold the foreground, shows nothing, and stays out of Alt+Tab.
         private void EnsureMenuOwner()
         {
             if (_menuOwner != IntPtr.Zero) return;
@@ -1070,12 +1075,49 @@ namespace DshDesktop
                     NativeMethods.RegisterClassEx(ref wc);
                     _menuOwnerClassRegistered = true;
                 }
-                _menuOwner = NativeMethods.CreateWindowEx(0, MenuOwnerClass, "", 0, -4000, -4000, 8, 8,
-                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                const uint WS_POPUP = 0x80000000;
+                const uint WS_EX_TOOLWINDOW = 0x00000080;
+                _menuOwner = NativeMethods.CreateWindowEx(WS_EX_TOOLWINDOW, MenuOwnerClass, "", WS_POPUP,
+                    -32000, -32000, 1, 1, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                // Shown without activating and parked far off-screen: visible enough to hold the
+                // foreground, invisible to the user, and never in Alt+Tab (TOOLWINDOW).
+                NativeMethods.ShowWindow(_menuOwner, 4 /* SW_SHOWNOACTIVATE */);
                 App.Log("tray menu owner=" + _menuOwner);
             }
             catch (Exception ex) { App.Log("tray menu owner failed: " + ex.Message); }
             finally { NativeMethods.SetThreadDpiAwarenessContext(previous); }
+        }
+
+        // Make the menu's owner the foreground window so the popup receives the click that
+        // dismisses it. SetForegroundWindow alone is refused while another application owns the
+        // foreground, so the input queues are attached for the call - the documented workaround
+        // that tray-menu implementations use.
+        private void ForceMenuOwnerForeground()
+        {
+            try
+            {
+                uint myThread = NativeMethods.GetCurrentThreadId();
+                uint fgPid;
+                uint fgThread = NativeMethods.GetWindowThreadProcessId(NativeMethods.GetForegroundWindow(), out fgPid);
+                bool attached = false;
+                if (fgThread != 0 && fgThread != myThread)
+                    attached = NativeMethods.AttachThreadInput(myThread, fgThread, true);
+                try
+                {
+                    NativeMethods.SetForegroundWindow(_menuOwner);
+                    // Logged because this is the mechanism that decides whether the menu can
+                    // close on an outside click: if the foreground did not move to the owner, clicks
+                    // land in another window and the menu stays up.
+                    App.Log("tray menu foreground: owner=" + _menuOwner
+                        + " now=" + NativeMethods.GetForegroundWindow()
+                        + " attached=" + attached);
+                }
+                finally
+                {
+                    if (attached) NativeMethods.AttachThreadInput(myThread, fgThread, false);
+                }
+            }
+            catch (Exception ex) { App.Log("tray menu foreground failed: " + ex.Message); }
         }
 
         private static bool _menuOwnerClassRegistered;
@@ -1107,12 +1149,11 @@ namespace DshDesktop
                 NativeMethods.SetThreadDpiAwarenessContext(NativeMethods.DpiAwarenessPerMonitorV2);
                 NativeMethods.MonitorPoint cp;
                 if (!NativeMethods.GetCursorPos(out cp)) return;
-                // Nothing here may touch the main window: any activation request while it is
-                // hidden makes Windows/WinForms bring it back, which is exactly the reported
-                // "right-clicking the tray icon shows a blank white dsh-desktop window".
-                // The menu owner is a dedicated hidden window, so it is deliberately NOT
-                // made foreground (SetForegroundWindow on a hidden window fails and lets the
-                // process's other windows take the activation).
+                // The menu only dismisses on an outside click while its owner is the foreground
+                // window; without this the click went to the WebView2 page and the menu stayed
+                // up (measured: foreground was the page's Chrome_WidgetWin_1 while the menu was
+                // open). The main window is never touched here, so it cannot be pulled back.
+                ForceMenuOwnerForeground();
                 const uint TPM_RETURNCMD = 0x0100;
                 const uint TPM_RIGHTBUTTON = 0x0002;
                 int command = NativeMethods.TrackPopupMenuEx(menu,

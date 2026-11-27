@@ -325,6 +325,17 @@ namespace DshDesktop
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         public static extern bool ClientToScreen(IntPtr hwnd, ref MonitorPoint point);
 
+        // Foreground handling for a native tray menu. The overload taking out uint is what
+        // returns the owning THREAD id; passing IntPtr.Zero for the pid parameter leaves it 0.
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        public static extern uint GetCurrentThreadId();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern bool AttachThreadInput(uint attach, uint attachTo, bool doAttach);
+
         // Shell_NotifyIconGetRect: the notification icon's own screen rectangle.
         // This is the most reliable anchor for a tray menu - it is literally where
         // the icon is, independent of cursor coordinates and DPI conversions.
