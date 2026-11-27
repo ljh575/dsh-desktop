@@ -182,7 +182,6 @@ namespace DshDesktop
                 _titleIcon.Image = bitmap;
                 _titleIcon.Invalidate();
                 _titleIconName = wanted;
-                App.Log("title icon -> " + wanted + " (dark=" + _dark + ")");
             }
             catch (Exception ex) { App.Log("title icon failed: " + ex.Message); }
         }
@@ -457,13 +456,9 @@ namespace DshDesktop
             // without a stray outline. That colour is fixed on the window, so a theme switch
             // left the OLD colour around the edge - a white ring in dark mode, a black one in
             // light mode. Re-apply it here: every theme change goes through ApplyChrome.
-            // Logged because the colour is the whole point of the fix and a stale value shows
-            // up here immediately.
             if (IsHandleCreated && WindowState != FormWindowState.Maximized)
             {
                 NativeMethods.BlendBorder(Handle, _chromeRight);
-                App.Log("dwm border -> " + _chromeRight.R + "," + _chromeRight.G + "," + _chromeRight.B
-                    + " dark=" + _dark);
             }
         }
 
@@ -590,9 +585,6 @@ namespace DshDesktop
                 _chromeRight = right;
                 _chromeSplit = split;
                 ApplyChrome();
-                App.Log("chrome colour from page: left=" + left.R + "," + left.G + "," + left.B
-                    + " right=" + right.R + "," + right.G + "," + right.B
-                    + " split=" + split.ToString(CultureInfo.InvariantCulture));
             }
             catch (Exception ex) { App.Log("theme probe failed: " + ex.Message); }
         }
@@ -1048,7 +1040,6 @@ namespace DshDesktop
                 // Shown without activating and parked far off-screen: visible enough to hold the
                 // foreground, invisible to the user, and never in Alt+Tab (TOOLWINDOW).
                 NativeMethods.ShowWindow(_menuOwner, 4 /* SW_SHOWNOACTIVATE */);
-                App.Log("tray menu owner=" + _menuOwner);
             }
             catch (Exception ex) { App.Log("tray menu owner failed: " + ex.Message); }
             finally { NativeMethods.SetThreadDpiAwarenessContext(previous); }
@@ -1071,12 +1062,6 @@ namespace DshDesktop
                 try
                 {
                     NativeMethods.SetForegroundWindow(_menuOwner);
-                    // Logged because this is the mechanism that decides whether the menu can
-                    // close on an outside click: if the foreground did not move to the owner, clicks
-                    // land in another window and the menu stays up.
-                    App.Log("tray menu foreground: owner=" + _menuOwner
-                        + " now=" + NativeMethods.GetForegroundWindow()
-                        + " attached=" + attached);
                 }
                 finally
                 {
@@ -1126,7 +1111,6 @@ namespace DshDesktop
                     TPM_RETURNCMD | TPM_RIGHTBUTTON, cp.X, cp.Y, _menuOwner, IntPtr.Zero);
                 // Release the foreground the menu took (the documented tray-menu pairing).
                 NativeMethods.PostMessage(_menuOwner, 0x0000 /* WM_NULL */, IntPtr.Zero, IntPtr.Zero);
-                App.Log("tray menu: cursor=" + cp.X + "," + cp.Y + " command=" + command);
                 switch (command)
                 {
                     case TrayCmdShow: RestoreFromTray(); break;
@@ -1162,8 +1146,6 @@ namespace DshDesktop
             // the first close really disappear (an outside SW_HIDE always worked).
             if (NativeMethods.IsWindowVisible(Handle))
                 NativeMethods.ShowWindow(Handle, 0 /* SW_HIDE */);
-            App.Log("hidden to tray: visible=" + Visible
-                + " isWindowVisible=" + NativeMethods.IsWindowVisible(Handle));
 
             if (!_trayHintShown)
             {
@@ -1459,7 +1441,6 @@ namespace DshDesktop
                 try { message = e.TryGetWebMessageAsString(); } catch (Exception ex) { App.Log("message read failed: " + ex.Message); }
                 if (message == "dsh-desktop:theme")
                 {
-                    App.Log("page theme message");
                     // The DOM says it changed before the paint catches up, so read the
                     // colours twice: right away and once the new style has landed.
                     SyncThemeFromPage();
@@ -2165,8 +2146,6 @@ namespace DshDesktop
                 mmi.ptMaxTrackSize.X = mmi.ptMaxSize.X;
                 mmi.ptMaxTrackSize.Y = mmi.ptMaxSize.Y;
                 System.Runtime.InteropServices.Marshal.StructureToPtr(mmi, lParam, true);
-                App.Log("minmax clamp: windowMonitor work=" + mi.rcWork.Left + "," + mi.rcWork.Top
-                    + ".." + mi.rcWork.Right + "," + mi.rcWork.Bottom);
             }
             catch (Exception ex) { App.Log("minmax clamp failed: " + ex.Message); }
         }

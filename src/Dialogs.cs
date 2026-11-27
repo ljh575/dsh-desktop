@@ -76,7 +76,6 @@ namespace DshDesktop
         {
             Palette = palette;
             Scale = MonitorScale > 0f ? MonitorScale : App.Scale();
-            App.Log("dialog scale=" + Scale + " monitorOverride=" + MonitorScale + " title=" + title);
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterParent;
             ShowInTaskbar = false;
@@ -89,8 +88,6 @@ namespace DshDesktop
             ForeColor = palette.Text;
             Font = UiFont(9f);
             ClientSize = new Size(S(width), S(height));
-            App.Log("dialog metric: '" + title + "' scale=" + Scale + " client=" + ClientSize.Width + "x" + ClientSize.Height
-                + " fontPt=" + Font.SizeInPoints + " fontH=" + TextRenderer.MeasureText("Ag", Font).Height);
             try { Icon = App.PickThemeIcon(App.S != null ? App.S.Icon : "default"); } catch { }
             DoubleBuffered = true;
 
@@ -120,9 +117,11 @@ namespace DshDesktop
             // dragging it would only break that, so the header does not grab.
 
             _header.Resize += delegate { LayoutHeader(); };
-            // Setting the preference before the window is shown can be ignored by
-            // the compositor, so ask again once it is up.
-            Shown += delegate { NativeMethods.RoundCorners(Handle); };
+            // Setting the preference before the window is shown can be ignored by the
+            // compositor, so ask again once it is up. Windows 10 has no such attribute: asking
+            // there only returns E_INVALIDARG, which is why this is gated.
+            if (NativeMethods.Windows11)
+                Shown += delegate { NativeMethods.RoundCorners(Handle); };
             LayoutHeader();
             Resize += delegate { ApplyRegion(); };
             ApplyRegion();
@@ -265,7 +264,6 @@ namespace DshDesktop
         // to the compositor, in which case a Region must not also be set.
         public static bool RoundCorners(IntPtr handle)
         {
-            if (!Windows11) { App.Log("dwm round skipped: not Windows 11"); return false; }
             return SetCorners(handle, DwmRound);
         }
 
@@ -279,6 +277,10 @@ namespace DshDesktop
 
         private static bool SetCorners(IntPtr handle, int preference)
         {
+            // DWMWA_WINDOW_CORNER_PREFERENCE exists from Windows 11 (build 22000). Asking on
+            // Windows 10 only returns E_INVALIDARG, so the check lives here once instead of at
+            // every call site - and it no longer logs a failure that can never succeed.
+            if (!Windows11) return false;
             try
             {
                 int value = preference;

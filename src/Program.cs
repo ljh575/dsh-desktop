@@ -435,6 +435,7 @@ namespace DshDesktop
 
         // icon=default uses the official DSH artwork (rounded backdrop, read anywhere).
         // icon=light|dark|auto switch between the monochrome whale variants.
+        private static string _lastIconResource;   // suppresses repeated "icon=..." log lines
         public static Icon PickThemeIcon(string mode)
         {
             string choice = (mode ?? "default").Trim().ToLowerInvariant();
@@ -448,7 +449,13 @@ namespace DshDesktop
                 resource = "dsh_default.ico";
             }
 
-            Log("icon=" + choice + " -> " + resource);
+            // Logged once per distinct resource: PickThemeIcon runs for the window, the tray and
+            // every dialog, so logging unconditionally filled the log with the same line.
+            if (!string.Equals(resource, _lastIconResource, StringComparison.Ordinal))
+            {
+                _lastIconResource = resource;
+                Log("icon=" + choice + " -> " + resource);
+            }
             try
             {
                 Assembly asm = Assembly.GetExecutingAssembly();
