@@ -257,7 +257,11 @@ namespace DshDesktop
             menu.ShowCheckMargin = false;
             menu.ShowImageMargin = false;
             // Same look on both OSes: the UI font and the 34px row height.
-            menu.Font = new Font("Microsoft YaHei UI", 9f);
+            // Pixel-sized like everything else in a dialog: the list is its own popup window,
+            // so a point size here renders at whatever DC DPI that window gets (measured on a
+            // dpi=120 dialog: the closed cell was correct while the opened options were large,
+            // because only the cell had been converted).
+            menu.Font = DsDialog.UiFontFor(9f, _scale);
             menu.Padding = new Padding((int)Math.Round(6 * _scale));
 
             for (int i = 0; i < _items.Length; i++)
@@ -287,7 +291,22 @@ namespace DshDesktop
             }
             menu.AutoSize = false;
             menu.Size = new Size(widestItem + menu.Padding.Horizontal, totalHeight);
-            menu.Show(this, new Point(0, Height + 2));
+            // Show it at the cell's screen position, explicitly. menu.Show(control, point) runs
+            // WinForms' own screen maths, which on a mixed-DPI desktop put the list on the
+            // WRONG monitor at the wrong DPI context (measured: cell at -1082,1457 on the 125%
+            // secondary, list appeared at 526,380 with dpi=192 - the primary's system DPI).
+            // The list is created and shown inside a PER-MONITOR-V2 thread context so its
+            // window gets the monitor's real DPI, matching the pixel-sized font above.
+            IntPtr previous = NativeMethods.GetThreadDpiAwarenessContext();
+            try
+            {
+                NativeMethods.SetThreadDpiAwarenessContext(NativeMethods.DpiAwarenessPerMonitorV2);
+                NativeMethods.MonitorPoint origin = new NativeMethods.MonitorPoint();
+                origin.X = 0; origin.Y = 0;
+                NativeMethods.ClientToScreen(Handle, ref origin);
+                menu.Show(new Point(origin.X, origin.Y + Height + 2));
+            }
+            finally { NativeMethods.SetThreadDpiAwarenessContext(previous); }
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -465,7 +484,9 @@ namespace DshDesktop
             _scale = scale <= 0 ? 1f : scale;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint
                 | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
-            Font = new Font("Segoe UI", 11f);
+            // Glyph-only button, but the symbol is still text and has to scale with its own
+            // scale rather than a DC DPI, like every other font in a dialog.
+            Font = new Font("Segoe UI", Math.Max(1f, 11f * (96f / 72f) * _scale), FontStyle.Regular, GraphicsUnit.Pixel);
             Cursor = Cursors.Hand;
             TabStop = false;
             BackColor = Color.Transparent;

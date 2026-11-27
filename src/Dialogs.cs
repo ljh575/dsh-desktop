@@ -322,6 +322,9 @@ namespace DshDesktop
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         public static extern bool GetCursorPos(out MonitorPoint point);
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern bool ClientToScreen(IntPtr hwnd, ref MonitorPoint point);
+
         // Shell_NotifyIconGetRect: the notification icon's own screen rectangle.
         // This is the most reliable anchor for a tray menu - it is literally where
         // the icon is, independent of cursor coordinates and DPI conversions.
